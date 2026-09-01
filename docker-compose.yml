@@ -1,0 +1,11 @@
+services:
+  mongo:
+    image: docker.io/library/mongo:7
+    container_name: choir-mongo
+    ports:
+      - "27018:27017"
+    volumes:
+      - choir_mongo_data:/data/db
+
+volumes:
+  choir_mongo_data:

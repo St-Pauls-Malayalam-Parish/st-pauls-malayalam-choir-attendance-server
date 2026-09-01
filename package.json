@@ -1,0 +1,27 @@
+{
+  "name": "st-pauls-choir-server",
+  "private": true,
+  "version": "1.0.0",
+  "description": "St Paul's Malayalam Parish choir attendance — API",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
+    "seed": "node src/seed.js",
+    "onboard": "node src/onboard.js",
+    "mongo:up": "podman compose up -d",
+    "mongo:down": "podman compose down",
+    "mongo:logs": "podman compose logs -f mongo"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.12.1"
+  }
+}
