@@ -62,4 +62,44 @@ Member emails: `firstname.lastname@choir.local`
 
 ## Frontend
 
-Pair with [choir-client](https://github.com/your-org/choir-client). Set `CLIENT_ORIGIN` to the frontend URL.
+Pair with [st-pauls-malayalam-choir-pune](https://github.com/St-Pauls-Malayalam-Parish/st-pauls-malayalam-choir-pune). Set `CLIENT_ORIGIN` to the frontend URL.
+
+## Deploy on Render
+
+1. **MongoDB Atlas** (free M0 cluster)
+   - Create a cluster at [mongodb.com/atlas](https://www.mongodb.com/atlas).
+   - Database Access → add a user with read/write.
+   - Network Access → allow `0.0.0.0/0` (or Render’s egress IPs).
+   - Connect → Drivers → copy the connection string and set database name to `choir`.
+
+2. **Render Web Service**
+   - [New Web Service](https://dashboard.render.com/) → connect repo `st-pauls-malayalam-choir-attendance-server`.
+   - **Build command:** `npm install`
+   - **Start command:** `npm start`
+   - **Environment variables:**
+
+   | Variable | Value |
+   | --- | --- |
+   | `NODE_ENV` | `production` |
+   | `MONGODB_URI` | Atlas connection string |
+   | `JWT_SECRET` | long random string |
+   | `CLIENT_ORIGIN` | `https://st-pauls-malayalam-parish.github.io` |
+   | `ADMIN_EMAIL` | (optional, for seed) |
+   | `ADMIN_PASSWORD` | (optional, for seed) |
+
+   Render sets `PORT` automatically — do not override it.
+
+3. **Seed production data** (once, from your machine with Atlas URI in `.env`):
+
+   ```bash
+   MONGODB_URI="mongodb+srv://..." npm run seed
+   MONGODB_URI="mongodb+srv://..." npm run onboard
+   ```
+
+4. **Frontend**
+   - In the client repo, set GitHub Actions variable `VITE_API_URL` to your Render URL (e.g. `https://st-pauls-choir-api.onrender.com`).
+   - Redeploy the client workflow.
+
+5. **Smoke test**
+   - `GET https://<your-service>.onrender.com/api/health` → `{ "ok": true }`
+   - Sign in from the GitHub Pages app; cookies use `SameSite=None; Secure` in production.

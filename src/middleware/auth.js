@@ -9,18 +9,24 @@ export function signToken(user) {
   );
 }
 
-export function setAuthCookie(res, token) {
-  res.cookie('token', token, {
+const cookieOptions = () => {
+  const isProduction = process.env.NODE_ENV === 'production';
+  return {
     httpOnly: true,
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
+    // GitHub Pages (frontend) and Render (API) are different origins.
+    sameSite: isProduction ? 'none' : 'lax',
+    secure: isProduction,
     maxAge: 7 * 24 * 60 * 60 * 1000,
     path: '/',
-  });
+  };
+};
+
+export function setAuthCookie(res, token) {
+  res.cookie('token', token, cookieOptions());
 }
 
 export function clearAuthCookie(res) {
-  res.clearCookie('token', { path: '/' });
+  res.clearCookie('token', cookieOptions());
 }
 
 export async function requireAuth(req, res, next) {

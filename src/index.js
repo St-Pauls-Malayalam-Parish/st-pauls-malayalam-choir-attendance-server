@@ -40,8 +40,8 @@ app.use((err, _req, res, _next) => {
 
 connectDb()
   .then(() => {
-    app.listen(port, () => {
-      console.log(`Choir API listening on http://localhost:${port}`);
+    app.listen(port, '0.0.0.0', () => {
+      console.log(`Choir API listening on port ${port}`);
     });
   })
   .catch((err) => {
