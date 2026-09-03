@@ -5,11 +5,11 @@ import { Event } from '../models/Event.js';
 import { User } from '../models/User.js';
 import { requireAuth, requireAdmin, approvedMemberFilter } from '../middleware/auth.js';
 import { asyncHandler } from '../utils/async-handler.js';
-import { eventDateQuery } from '../utils/dates.js';
-import { buildPaginationMeta, parsePagination } from '../utils/event-query.js';
+import { buildEventFilter, buildPaginationMeta, parsePagination } from '../utils/event-query.js';
 
 const router = Router();
 const STATUSES = ['present', 'absent', 'late', 'excused'];
+const MEMBER_STATUSES = [...STATUSES, 'upcoming', 'unmarked'];
 
 router.use(requireAuth);
 
@@ -45,6 +45,41 @@ function summaryFromRecords(records) {
   return { ...counts, total: records.length, rate };
 }
 
+function summaryFromHistory(history) {
+  const counts = { present: 0, absent: 0, late: 0, excused: 0 };
+  for (const item of history) {
+    if (Object.prototype.hasOwnProperty.call(counts, item.status)) {
+      counts[item.status] += 1;
+    }
+  }
+  const counted = counts.present + counts.absent + counts.late;
+  const rate = counted === 0 ? 0 : Math.round(((counts.present + counts.late) / counted) * 100);
+  return { ...counts, total: history.length, rate };
+}
+
+function parseStatusFilter(value) {
+  if (typeof value !== 'string' || !MEMBER_STATUSES.includes(value)) {
+    return '';
+  }
+  return value;
+}
+
+function resolveAttendanceStatus(event, record) {
+  const upcoming = new Date(event.date) > new Date();
+  return record?.status ?? (upcoming ? 'upcoming' : 'unmarked');
+}
+
+function serializeHistoryEvent(event) {
+  return {
+    id: event._id.toString(),
+    title: event.title,
+    date: event.date,
+    type: event.type,
+    notes: event.notes,
+    liturgicalColor: event.liturgicalColor || '',
+  };
+}
+
 router.get('/me', asyncHandler(async (req, res) => {
   if (req.user.role !== 'admin' && req.user.approvalStatus !== 'approved') {
     return res.json({
@@ -54,17 +89,17 @@ router.get('/me', asyncHandler(async (req, res) => {
       history: [],
     });
   }
-  const dateQuery = eventDateQuery(req.query.from, req.query.to);
-  if (dateQuery.error) {
-    return res.status(400).json({ error: dateQuery.error });
+  const { filter: eventFilter, error } = buildEventFilter(req.query);
+  if (error) {
+    return res.status(400).json({ error });
   }
 
-  const eventFilter = dateQuery.range ? { date: dateQuery.range } : {};
+  const statusFilter = parseStatusFilter(req.query.status);
   const { page, pageSize, skip } = parsePagination(req.query);
 
-  const [total, events, records] = await Promise.all([
-    Event.countDocuments(eventFilter),
-    Event.find(eventFilter).sort({ date: -1 }).skip(skip).limit(pageSize).lean(),
+  const [totalUnfiltered, events, records] = await Promise.all([
+    Event.countDocuments({}),
+    Event.find(eventFilter).sort({ date: -1 }).lean(),
     Attendance.find({ user: req.user._id })
       .populate({
         path: 'event',
@@ -78,28 +113,31 @@ router.get('/me', asyncHandler(async (req, res) => {
     filteredRecords.map((record) => [record.event._id.toString(), record])
   );
 
-  const history = events.map((event) => {
+  let history = events.map((event) => {
     const record = byEvent.get(event._id.toString());
-    const upcoming = new Date(event.date) > new Date();
     return {
-      event: {
-        id: event._id.toString(),
-        title: event.title,
-        date: event.date,
-        type: event.type,
-        notes: event.notes,
-        liturgicalColor: event.liturgicalColor || '',
-      },
-      status: record?.status ?? (upcoming ? 'upcoming' : 'unmarked'),
+      event: serializeHistoryEvent(event),
+      status: resolveAttendanceStatus(event, record),
       notes: record?.notes || '',
     };
   });
 
+  if (statusFilter) {
+    history = history.filter((item) => item.status === statusFilter);
+  }
+
+  const total = history.length;
+  const paginatedHistory = history.slice(skip, skip + pageSize);
+  const summary = statusFilter
+    ? summaryFromHistory(history)
+    : summaryFromRecords(filteredRecords);
+
   res.json({
     user: req.user.toSafeJSON(),
-    summary: summaryFromRecords(filteredRecords),
-    history,
+    summary,
+    history: paginatedHistory,
     pagination: buildPaginationMeta({ page, pageSize, total }),
+    meta: { totalUnfiltered },
   });
 }));
 
