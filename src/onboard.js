@@ -92,7 +92,7 @@ async function onboard() {
   console.log(`Onboarded ${members.length} approved members from the attendance report.`);
   console.log('Temporary password for all of them: ' + password);
   console.log('Username pattern: firstname.lastname');
-  console.log('Example: angel.benny');
+  console.log('Example: rigin.oommen');
   process.exit(0);
 }
 

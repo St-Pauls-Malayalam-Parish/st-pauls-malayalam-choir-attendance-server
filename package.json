@@ -1,5 +1,5 @@
 {
-  "name": "st-pauls-choir-server",
+  "name": "attendance-server",
   "private": true,
   "version": "1.0.0",
   "description": "St Paul's Malayalam Parish choir attendance — API",

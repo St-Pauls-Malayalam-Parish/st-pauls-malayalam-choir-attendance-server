@@ -2,6 +2,10 @@
 
 Node / Express API and MongoDB for the parish choir attendance app.
 
+**Repo:** [St-Pauls-Malayalam-Parish/attendance-server](https://github.com/St-Pauls-Malayalam-Parish/attendance-server)
+
+**Frontend:** [attendance-application](https://github.com/St-Pauls-Malayalam-Parish/attendance-application)
+
 ## Requirements
 
 - Node.js 18+
@@ -65,7 +69,7 @@ Member usernames follow `firstname.lastname` (from the parish roster).
 
 ## Frontend
 
-Pair with [st-pauls-malayalam-choir-pune](https://github.com/St-Pauls-Malayalam-Parish/st-pauls-malayalam-choir-pune). Set `CLIENT_ORIGIN` to the frontend URL.
+Pair with [attendance-application](https://github.com/St-Pauls-Malayalam-Parish/attendance-application). Set `CLIENT_ORIGIN` to the frontend URL.
 
 ## Deploy on Render
 
@@ -76,7 +80,7 @@ Pair with [st-pauls-malayalam-choir-pune](https://github.com/St-Pauls-Malayalam-
    - Connect → Drivers → copy the connection string and set database name to `choir`.
 
 2. **Render Web Service**
-   - [New Web Service](https://dashboard.render.com/) → connect repo `st-pauls-malayalam-choir-attendance-server`.
+   - [New Web Service](https://dashboard.render.com/) → connect repo [attendance-server](https://github.com/St-Pauls-Malayalam-Parish/attendance-server).
    - **Build command:** `npm install`
    - **Start command:** `npm start`
    - **Environment variables:**
@@ -87,10 +91,13 @@ Pair with [st-pauls-malayalam-choir-pune](https://github.com/St-Pauls-Malayalam-
    | `MONGODB_URI` | Atlas connection string |
    | `JWT_SECRET` | long random string |
    | `CLIENT_ORIGIN` | `https://st-pauls-malayalam-parish.github.io` |
+   | `ADMIN_USERNAME` | `admin` |
    | `ADMIN_EMAIL` | (optional, for seed) |
    | `ADMIN_PASSWORD` | (optional, for seed) |
 
    Render sets `PORT` automatically — do not override it.
+
+   If you renamed the GitHub repo, update the connected repository under **Settings → Build & Deploy** on your existing Render service (the public URL can stay the same).
 
 3. **Seed production data** (once, from your machine with Atlas URI in `.env`):
 
@@ -100,9 +107,15 @@ Pair with [st-pauls-malayalam-choir-pune](https://github.com/St-Pauls-Malayalam-
    ```
 
 4. **Frontend**
-   - In the client repo, set GitHub Actions variable `VITE_API_URL` to your Render URL (e.g. `https://st-pauls-choir-api.onrender.com`).
+   - In [attendance-application](https://github.com/St-Pauls-Malayalam-Parish/attendance-application), set GitHub Actions variable `VITE_API_URL` to your Render URL (e.g. `https://attendance-server.onrender.com` or your existing service URL).
    - Redeploy the client workflow.
 
 5. **Smoke test**
    - `GET https://<your-service>.onrender.com/api/health` → `{ "ok": true }`
    - Sign in from the GitHub Pages app; cookies use `SameSite=None; Secure` in production.
+
+## Git remote
+
+```bash
+git remote set-url origin https://github.com/St-Pauls-Malayalam-Parish/attendance-server.git
+```
