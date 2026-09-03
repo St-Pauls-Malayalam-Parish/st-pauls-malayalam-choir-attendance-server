@@ -42,6 +42,15 @@ app.use('/api/attendance', attendanceRoutes);
 app.use('/api/members', memberRoutes);
 
 app.use((err, _req, res, _next) => {
+  if (err.code === 11000) {
+    const field = Object.keys(err.keyPattern || {})[0];
+    const message =
+      field === 'username'
+        ? 'This username is already taken'
+        : 'An account with this email already exists';
+    return res.status(409).json({ error: message });
+  }
+
   console.error(err);
   res.status(500).json({ error: 'Something went wrong' });
 });

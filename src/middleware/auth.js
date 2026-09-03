@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { User } from '../models/User.js';
+import { asyncHandler } from '../utils/async-handler.js';
 
 export function signToken(user) {
   return jwt.sign(
@@ -37,7 +38,7 @@ function readAuthToken(req) {
   return req.cookies?.token;
 }
 
-export async function requireAuth(req, res, next) {
+export const requireAuth = asyncHandler(async (req, res, next) => {
   const token = readAuthToken(req);
   if (!token) {
     return res.status(401).json({ error: 'Sign in required' });
@@ -54,7 +55,7 @@ export async function requireAuth(req, res, next) {
   } catch {
     return res.status(401).json({ error: 'Session expired. Please sign in again.' });
   }
-}
+});
 
 export function requireAdmin(req, res, next) {
   if (req.user?.role !== 'admin') {

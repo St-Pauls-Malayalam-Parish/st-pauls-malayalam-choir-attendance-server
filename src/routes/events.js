@@ -2,13 +2,14 @@ import { Router } from 'express';
 import { Event } from '../models/Event.js';
 import { Attendance } from '../models/Attendance.js';
 import { requireAuth, requireAdmin, requireApproved } from '../middleware/auth.js';
+import { asyncHandler } from '../utils/async-handler.js';
 
 const router = Router();
 const EVENT_TYPES = ['rehearsal', 'service', 'concert', 'other'];
 
 router.use(requireAuth, requireApproved);
 
-router.get('/', async (_req, res) => {
+router.get('/', asyncHandler(async (_req, res) => {
   const events = await Event.find().sort({ date: -1 }).lean();
   res.json({
     events: events.map((event) => ({
@@ -19,9 +20,9 @@ router.get('/', async (_req, res) => {
       notes: event.notes,
     })),
   });
-});
+}));
 
-router.post('/', requireAdmin, async (req, res) => {
+router.post('/', requireAdmin, asyncHandler(async (req, res) => {
   const { title, date, type = 'rehearsal', notes = '' } = req.body;
   if (!title || !title.trim()) {
     return res.status(400).json({ error: 'Event title is required' });
@@ -50,15 +51,15 @@ router.post('/', requireAdmin, async (req, res) => {
       notes: event.notes,
     },
   });
-});
+}));
 
-router.delete('/:id', requireAdmin, async (req, res) => {
+router.delete('/:id', requireAdmin, asyncHandler(async (req, res) => {
   const event = await Event.findByIdAndDelete(req.params.id);
   if (!event) {
     return res.status(404).json({ error: 'Event not found' });
   }
   await Attendance.deleteMany({ event: event._id });
   res.json({ ok: true });
-});
+}));
 
 export default router;

@@ -5,6 +5,7 @@ import { User } from '../models/User.js';
 import { Attendance } from '../models/Attendance.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { normalizeUsername, validateEmail, validateUsername } from '../utils/user-fields.js';
+import { asyncHandler } from '../utils/async-handler.js';
 
 const router = Router();
 const VOICE_PARTS = ['soprano', 'alto', 'tenor', 'bass', 'other'];
@@ -67,7 +68,7 @@ function serializeMember(member, stats = {}) {
   };
 }
 
-router.get('/', async (_req, res) => {
+router.get('/', asyncHandler(async (_req, res) => {
   const members = await User.find({ role: 'member' })
     .select('name username email voicePart active approvalStatus createdAt')
     .sort({ createdAt: -1 })
@@ -97,9 +98,9 @@ router.get('/', async (_req, res) => {
     inactive: payload.filter((member) => !member.active),
     declined: payload.filter((member) => member.approvalStatus === 'rejected' && member.active),
   });
-});
+}));
 
-router.post('/', async (req, res) => {
+router.post('/', asyncHandler(async (req, res) => {
   const { name, username, email, password, voicePart = 'other' } = req.body;
   const error = validateMemberBody(
     { name, username, email, password, voicePart },
@@ -133,9 +134,9 @@ router.post('/', async (req, res) => {
   });
 
   res.status(201).json({ member: user.toSafeJSON() });
-});
+}));
 
-router.patch('/:id', async (req, res) => {
+router.patch('/:id', asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { name, username, email, voicePart = 'other', password } = req.body;
 
@@ -179,9 +180,9 @@ router.patch('/:id', async (req, res) => {
   await member.save();
 
   res.json({ member: member.toSafeJSON() });
-});
+}));
 
-router.patch('/:id/approval', async (req, res) => {
+router.patch('/:id/approval', asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { approvalStatus } = req.body;
 
@@ -195,9 +196,9 @@ router.patch('/:id/approval', async (req, res) => {
   member.approvalStatus = approvalStatus;
   await member.save();
   res.json({ member: member.toSafeJSON() });
-});
+}));
 
-router.patch('/:id/active', async (req, res) => {
+router.patch('/:id/active', asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { active } = req.body;
 
@@ -211,9 +212,9 @@ router.patch('/:id/active', async (req, res) => {
   member.active = active;
   await member.save();
   res.json({ member: member.toSafeJSON() });
-});
+}));
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', asyncHandler(async (req, res) => {
   const { id } = req.params;
 
   const member = await findMember(id, res);
@@ -222,6 +223,6 @@ router.delete('/:id', async (req, res) => {
   await Attendance.deleteMany({ user: member._id });
   await member.deleteOne();
   res.json({ ok: true });
-});
+}));
 
 export default router;

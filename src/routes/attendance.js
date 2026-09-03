@@ -4,6 +4,7 @@ import { Attendance } from '../models/Attendance.js';
 import { Event } from '../models/Event.js';
 import { User } from '../models/User.js';
 import { requireAuth, requireAdmin, approvedMemberFilter } from '../middleware/auth.js';
+import { asyncHandler } from '../utils/async-handler.js';
 
 const router = Router();
 const STATUSES = ['present', 'absent', 'late', 'excused'];
@@ -67,7 +68,7 @@ function eventDateQuery(from, to) {
   return { range: Object.keys(range).length ? range : null };
 }
 
-router.get('/me', async (req, res) => {
+router.get('/me', asyncHandler(async (req, res) => {
   if (req.user.role !== 'admin' && req.user.approvalStatus !== 'approved') {
     return res.json({
       user: req.user.toSafeJSON(),
@@ -119,9 +120,9 @@ router.get('/me', async (req, res) => {
     summary: summaryFromRecords(records),
     history,
   });
-});
+}));
 
-router.get('/', requireAdmin, async (req, res) => {
+router.get('/', requireAdmin, asyncHandler(async (req, res) => {
   const filter = {};
   if (req.query.eventId) {
     if (!mongoose.isValidObjectId(req.query.eventId)) {
@@ -143,9 +144,9 @@ router.get('/', requireAdmin, async (req, res) => {
     .lean();
 
   res.json({ records: records.map(serializeRecord) });
-});
+}));
 
-router.get('/event/:eventId', requireAdmin, async (req, res) => {
+router.get('/event/:eventId', requireAdmin, asyncHandler(async (req, res) => {
   const { eventId } = req.params;
   if (!mongoose.isValidObjectId(eventId)) {
     return res.status(400).json({ error: 'Invalid event' });
@@ -185,9 +186,9 @@ router.get('/event/:eventId', requireAdmin, async (req, res) => {
       };
     }),
   });
-});
+}));
 
-router.put('/event/:eventId', requireAdmin, async (req, res) => {
+router.put('/event/:eventId', requireAdmin, asyncHandler(async (req, res) => {
   const { eventId } = req.params;
   const { records } = req.body;
 
@@ -236,6 +237,6 @@ router.put('/event/:eventId', requireAdmin, async (req, res) => {
   }
 
   res.json({ ok: true, saved: ops.length });
-});
+}));
 
 export default router;
