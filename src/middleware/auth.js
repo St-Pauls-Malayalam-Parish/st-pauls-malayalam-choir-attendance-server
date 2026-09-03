@@ -29,8 +29,16 @@ export function clearAuthCookie(res) {
   res.clearCookie('token', cookieOptions());
 }
 
+function readAuthToken(req) {
+  const header = req.headers.authorization;
+  if (header?.startsWith('Bearer ')) {
+    return header.slice(7);
+  }
+  return req.cookies?.token;
+}
+
 export async function requireAuth(req, res, next) {
-  const token = req.cookies?.token;
+  const token = readAuthToken(req);
   if (!token) {
     return res.status(401).json({ error: 'Sign in required' });
   }

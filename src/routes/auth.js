@@ -54,7 +54,7 @@ router.post('/register', authLimiter, async (req, res) => {
 
     const token = signToken(user);
     setAuthCookie(res, token);
-    return res.status(201).json({ user: user.toSafeJSON() });
+    return res.status(201).json({ user: user.toSafeJSON(), token });
   } catch (err) {
     if (err.code === 11000) {
       return res.status(409).json({ error: 'An account with this email already exists' });
@@ -88,7 +88,7 @@ router.post('/login', authLimiter, async (req, res) => {
 
     const token = signToken(user);
     setAuthCookie(res, token);
-    return res.json({ user: user.toSafeJSON() });
+    return res.json({ user: user.toSafeJSON(), token });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Could not sign in' });
