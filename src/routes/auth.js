@@ -122,4 +122,32 @@ router.get('/me', requireAuth, (req, res) => {
   res.json({ user: req.user.toSafeJSON() });
 });
 
+router.post('/change-password', requireAuth, authLimiter, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Current and new password are required' });
+    }
+    if (newPassword.length < 8) {
+      return res.status(400).json({ error: 'New password must be at least 8 characters' });
+    }
+
+    const ok = await bcrypt.compare(currentPassword, req.user.passwordHash);
+    if (!ok) {
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+
+    req.user.passwordHash = await bcrypt.hash(newPassword, 12);
+    await req.user.save();
+
+    const token = signToken(req.user);
+    setAuthCookie(res, token);
+    return res.json({ ok: true, token });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Could not change password' });
+  }
+});
+
 export default router;
