@@ -16,7 +16,7 @@ async function seed() {
   }
 
   const adminUsername = normalizeUsername(process.env.ADMIN_USERNAME || 'admin');
-  const adminEmail = (process.env.ADMIN_EMAIL || 'admin@choir.local').toLowerCase();
+  const adminEmail = (process.env.ADMIN_EMAIL || 'admin@stpauls.parish').toLowerCase();
   const adminPassword = process.env.ADMIN_PASSWORD || 'choiradmin';
 
   const passwordHash = await bcrypt.hash(adminPassword, 12);

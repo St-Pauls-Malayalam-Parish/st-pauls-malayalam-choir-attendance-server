@@ -29,3 +29,6 @@ coverage/
 tmp/
 temp/
 *.pid
+
+# Local member roster (copy from data/members.sample.json)
+data/members.json

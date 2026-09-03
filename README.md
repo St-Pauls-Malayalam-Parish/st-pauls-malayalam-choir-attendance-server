@@ -34,7 +34,7 @@ Copy `.env.example` to `.env`:
 | `JWT_SECRET` | long random string | Session signing |
 | `CLIENT_ORIGIN` | `http://localhost:5173` | Frontend URL (CORS + cookies) |
 | `ADMIN_USERNAME` | `admin` | Seed admin login username |
-| `ADMIN_EMAIL` | `admin@choir.local` | Seed admin contact email |
+| `ADMIN_EMAIL` | `admin@stpauls.parish` | Seed admin contact email |
 | `ADMIN_PASSWORD` | `choiradmin` | Seed admin password |
 
 MongoDB uses port **27018** so it does not clash with a local `mongod` on 27017.
@@ -46,6 +46,8 @@ MongoDB uses port **27018** so it does not clash with a local `mongod` on 27017.
 | `npm run dev` | API with auto-reload |
 | `npm run start` | API (production) |
 | `npm run seed` | Create admin account if none exists |
+| `npm run import-members` | Import approved members from `data/members.json` |
+| `npm run migrate-email-domain` | Rewrite legacy `@choir.local` emails to `@stpauls.parish` |
 | `npm run mongo:up` | Start MongoDB in Podman |
 | `npm run mongo:down` | Stop MongoDB container |
 | `npm run mongo:logs` | Tail MongoDB logs |
@@ -63,6 +65,29 @@ Sign in with **username** and password (not email). Only the **admin** account i
 | Admin | value of `ADMIN_USERNAME` (default `admin`) | value of `ADMIN_PASSWORD` |
 
 Members join via **Register** on the frontend (admin approves) or are added under **Admin → Members**.
+
+## Import existing members
+
+For a one-time roster import, copy the sample file and edit your choir list:
+
+```bash
+cp data/members.sample.json data/members.json
+# edit data/members.json — one object per singer
+npm run import-members -- --dry-run
+npm run import-members
+```
+
+Each row needs at least a **name**. Optional fields: `username`, `email` (defaults to `username@stpauls.parish`), `voicePart` (`soprano` | `alto` | `tenor` | `bass` | `other`), and `password` (otherwise all imported members share the default).
+
+Default password is `Choir@2026`, or set `MEMBER_DEFAULT_PASSWORD` in `.env`:
+
+```bash
+MEMBER_DEFAULT_PASSWORD='Choir@2026' npm run import-members
+```
+
+Imported members are created as **approved** and can sign in immediately with their username. Ask them to change their password under **Account** after first login.
+
+The script skips anyone whose username or email already exists.
 
 ## Frontend
 
@@ -109,7 +134,8 @@ Pair with [attendance-application](https://github.com/St-Pauls-Malayalam-Parish/
    - Redeploy the client workflow.
 
 5. **Smoke test**
-   - `GET https://<your-service>.onrender.com/api/health` → `{ "ok": true }`
+   - `GET https://<your-service>.onrender.com/api/health` → `{ "ok": true, "database": { "connected": true, "name": "choir" }, ... }`
+   - Returns **503** if MongoDB is unreachable.
    - Sign in from the GitHub Pages app; cookies use `SameSite=None; Secure` in production.
 
 ## Git remote

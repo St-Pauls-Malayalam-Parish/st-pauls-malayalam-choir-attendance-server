@@ -1,4 +1,5 @@
 export const USERNAME_PATTERN = /^[a-z0-9][a-z0-9._-]{2,31}$/;
+export const PARISH_EMAIL_DOMAIN = 'stpauls.parish';
 
 export function normalizeUsername(value) {
   return String(value || '').trim().toLowerCase();
@@ -24,4 +25,8 @@ export function usernameFromName(name) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '.')
     .replace(/^\.+|\.+$/g, '');
+}
+
+export function emailFromUsername(username) {
+  return `${normalizeUsername(username)}@${PARISH_EMAIL_DOMAIN}`;
 }

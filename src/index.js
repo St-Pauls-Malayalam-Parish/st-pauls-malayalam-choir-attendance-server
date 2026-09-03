@@ -9,6 +9,7 @@ import authRoutes from './routes/auth.js';
 import eventRoutes from './routes/events.js';
 import attendanceRoutes from './routes/attendance.js';
 import memberRoutes from './routes/members.js';
+import healthRoutes from './routes/health.js';
 
 dotenv.config();
 
@@ -37,9 +38,7 @@ app.use(
 app.use(express.json({ limit: '32kb' }));
 app.use(cookieParser());
 
-app.get('/api/health', (_req, res) => {
-  res.json({ ok: true });
-});
+app.use('/api/health', healthRoutes);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/events', eventRoutes);
