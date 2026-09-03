@@ -3,6 +3,7 @@ import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
+import { validateEnv } from './config/env.js';
 import { connectDb } from './db.js';
 import authRoutes from './routes/auth.js';
 import eventRoutes from './routes/events.js';
@@ -10,6 +11,13 @@ import attendanceRoutes from './routes/attendance.js';
 import memberRoutes from './routes/members.js';
 
 dotenv.config();
+
+try {
+  validateEnv();
+} catch (err) {
+  console.error(err.message);
+  process.exit(1);
+}
 
 const app = express();
 const port = Number(process.env.PORT) || 4000;
