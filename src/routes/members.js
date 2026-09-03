@@ -4,19 +4,36 @@ import mongoose from 'mongoose';
 import { User } from '../models/User.js';
 import { Attendance } from '../models/Attendance.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import { normalizeUsername, validateEmail, validateUsername } from '../utils/user-fields.js';
 
 const router = Router();
 const VOICE_PARTS = ['soprano', 'alto', 'tenor', 'bass', 'other'];
 
 router.use(requireAuth, requireAdmin);
 
-function validateMemberBody({ name, email, password, voicePart }, { passwordRequired }) {
+async function findMember(id, res) {
+  if (!mongoose.isValidObjectId(id)) {
+    res.status(400).json({ error: 'Invalid member' });
+    return null;
+  }
+  const member = await User.findOne({ _id: id, role: 'member' });
+  if (!member) {
+    res.status(404).json({ error: 'Member not found' });
+    return null;
+  }
+  return member;
+}
+
+function validateMemberBody({ name, username, email, password, voicePart }, { passwordRequired, usernameRequired }) {
   if (!name || name.trim().length < 2) {
     return 'Name is required';
   }
-  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    return 'A valid email is required';
+  if (usernameRequired || username) {
+    const usernameError = validateUsername(username);
+    if (usernameError) return usernameError;
   }
+  const emailError = validateEmail(email);
+  if (emailError) return emailError;
   if (passwordRequired && (!password || password.length < 8)) {
     return 'Password must be at least 8 characters';
   }
@@ -40,6 +57,7 @@ function serializeMember(member, stats = {}) {
   return {
     id: member._id.toString(),
     name: member.name,
+    username: member.username,
     email: member.email,
     voicePart: member.voicePart,
     active: member.active,
@@ -51,7 +69,7 @@ function serializeMember(member, stats = {}) {
 
 router.get('/', async (_req, res) => {
   const members = await User.find({ role: 'member' })
-    .select('name email voicePart active approvalStatus createdAt')
+    .select('name username email voicePart active approvalStatus createdAt')
     .sort({ createdAt: -1 })
     .lean();
 
@@ -74,27 +92,40 @@ router.get('/', async (_req, res) => {
   const payload = members.map((member) => serializeMember(member, byUser.get(member._id.toString())));
 
   res.json({
-    pending: payload.filter((member) => member.approvalStatus === 'pending'),
-    members: payload.filter((member) => member.approvalStatus === 'approved'),
-    declined: payload.filter((member) => member.approvalStatus === 'rejected'),
+    pending: payload.filter((member) => member.approvalStatus === 'pending' && member.active),
+    members: payload.filter((member) => member.approvalStatus === 'approved' && member.active),
+    inactive: payload.filter((member) => !member.active),
+    declined: payload.filter((member) => member.approvalStatus === 'rejected' && member.active),
   });
 });
 
 router.post('/', async (req, res) => {
-  const { name, email, password, voicePart = 'other' } = req.body;
-  const error = validateMemberBody({ name, email, password, voicePart }, { passwordRequired: true });
+  const { name, username, email, password, voicePart = 'other' } = req.body;
+  const error = validateMemberBody(
+    { name, username, email, password, voicePart },
+    { passwordRequired: true, usernameRequired: true }
+  );
   if (error) {
     return res.status(400).json({ error });
   }
 
-  const existing = await User.findOne({ email: email.toLowerCase() });
-  if (existing) {
+  const normalizedUsername = normalizeUsername(username);
+  const normalizedEmail = email.toLowerCase();
+
+  const existingUsername = await User.findOne({ username: normalizedUsername });
+  if (existingUsername) {
+    return res.status(409).json({ error: 'This username is already taken' });
+  }
+
+  const existingEmail = await User.findOne({ email: normalizedEmail });
+  if (existingEmail) {
     return res.status(409).json({ error: 'An account with this email already exists' });
   }
 
   const user = await User.create({
     name: name.trim(),
-    email: email.toLowerCase(),
+    username: normalizedUsername,
+    email: normalizedEmail,
     passwordHash: await bcrypt.hash(password, 12),
     voicePart,
     role: 'member',
@@ -106,13 +137,16 @@ router.post('/', async (req, res) => {
 
 router.patch('/:id', async (req, res) => {
   const { id } = req.params;
-  const { name, email, voicePart = 'other', password } = req.body;
+  const { name, username, email, voicePart = 'other', password } = req.body;
 
   if (!mongoose.isValidObjectId(id)) {
     return res.status(400).json({ error: 'Invalid member' });
   }
 
-  const error = validateMemberBody({ name, email, password, voicePart }, { passwordRequired: false });
+  const error = validateMemberBody(
+    { name, username, email, password, voicePart },
+    { passwordRequired: false, usernameRequired: true }
+  );
   if (error) {
     return res.status(400).json({ error });
   }
@@ -122,13 +156,21 @@ router.patch('/:id', async (req, res) => {
     return res.status(404).json({ error: 'Member not found' });
   }
 
+  const nextUsername = normalizeUsername(username);
   const nextEmail = email.toLowerCase();
-  const clash = await User.findOne({ email: nextEmail, _id: { $ne: member._id } });
-  if (clash) {
+
+  const usernameClash = await User.findOne({ username: nextUsername, _id: { $ne: member._id } });
+  if (usernameClash) {
+    return res.status(409).json({ error: 'This username is already taken' });
+  }
+
+  const emailClash = await User.findOne({ email: nextEmail, _id: { $ne: member._id } });
+  if (emailClash) {
     return res.status(409).json({ error: 'An account with this email already exists' });
   }
 
   member.name = name.trim();
+  member.username = nextUsername;
   member.email = nextEmail;
   member.voicePart = voicePart;
   if (password) {
@@ -143,21 +185,43 @@ router.patch('/:id/approval', async (req, res) => {
   const { id } = req.params;
   const { approvalStatus } = req.body;
 
-  if (!mongoose.isValidObjectId(id)) {
-    return res.status(400).json({ error: 'Invalid member' });
-  }
+  const member = await findMember(id, res);
+  if (!member) return;
+
   if (!['approved', 'rejected', 'pending'].includes(approvalStatus)) {
     return res.status(400).json({ error: 'Approval must be approved or declined' });
-  }
-
-  const member = await User.findOne({ _id: id, role: 'member' });
-  if (!member) {
-    return res.status(404).json({ error: 'Member not found' });
   }
 
   member.approvalStatus = approvalStatus;
   await member.save();
   res.json({ member: member.toSafeJSON() });
+});
+
+router.patch('/:id/active', async (req, res) => {
+  const { id } = req.params;
+  const { active } = req.body;
+
+  if (typeof active !== 'boolean') {
+    return res.status(400).json({ error: 'Active must be true or false' });
+  }
+
+  const member = await findMember(id, res);
+  if (!member) return;
+
+  member.active = active;
+  await member.save();
+  res.json({ member: member.toSafeJSON() });
+});
+
+router.delete('/:id', async (req, res) => {
+  const { id } = req.params;
+
+  const member = await findMember(id, res);
+  if (!member) return;
+
+  await Attendance.deleteMany({ user: member._id });
+  await member.deleteOne();
+  res.json({ ok: true });
 });
 
 export default router;

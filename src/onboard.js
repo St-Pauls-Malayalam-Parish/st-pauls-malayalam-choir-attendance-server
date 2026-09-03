@@ -4,7 +4,8 @@ import { connectDb } from './db.js';
 import { User } from './models/User.js';
 import { Event } from './models/Event.js';
 import { Attendance } from './models/Attendance.js';
-import { emailFromName, parishMembers } from './data/parish-members.js';
+import { emailFromName, parishMembers, usernameFromName } from './data/parish-members.js';
+import { normalizeUsername } from './utils/user-fields.js';
 
 dotenv.config();
 
@@ -25,8 +26,8 @@ function importDates() {
 async function onboard() {
   await connectDb();
 
-  const adminEmail = (process.env.ADMIN_EMAIL || 'admin@choir.local').toLowerCase();
-  const admin = await User.findOne({ email: adminEmail, role: 'admin' });
+  const adminUsername = normalizeUsername(process.env.ADMIN_USERNAME || 'admin');
+  const admin = await User.findOne({ username: adminUsername, role: 'admin' });
   if (!admin) {
     throw new Error('Create the admin account first with npm run seed');
   }
@@ -36,12 +37,14 @@ async function onboard() {
   const members = [];
 
   for (const member of parishMembers) {
+    const username = usernameFromName(member.name);
     const email = emailFromName(member.name);
     const user = await User.findOneAndUpdate(
-      { email },
+      { username },
       {
         $set: {
           name: member.name,
+          username,
           email,
           passwordHash,
           role: 'member',
@@ -88,8 +91,8 @@ async function onboard() {
 
   console.log(`Onboarded ${members.length} approved members from the attendance report.`);
   console.log('Temporary password for all of them: ' + password);
-  console.log('Email pattern: firstname.lastname@choir.local');
-  console.log('Example: angel.benny@choir.local');
+  console.log('Username pattern: firstname.lastname');
+  console.log('Example: angel.benny');
   process.exit(0);
 }
 

@@ -4,15 +4,16 @@ import { connectDb } from './db.js';
 import { User } from './models/User.js';
 import { Event } from './models/Event.js';
 import { Attendance } from './models/Attendance.js';
-import { emailFromName, parishMembers } from './data/parish-members.js';
+import { emailFromName, parishMembers, usernameFromName } from './data/parish-members.js';
+import { normalizeUsername } from './utils/user-fields.js';
 
 dotenv.config();
 
-async function upsertUser({ name, email, password, role, voicePart }) {
+async function upsertUser({ name, username, email, password, role, voicePart }) {
   const passwordHash = await bcrypt.hash(password, 12);
   return User.findOneAndUpdate(
-    { email },
-    { $set: { name, email, passwordHash, role, voicePart, active: true, approvalStatus: 'approved' } },
+    { username },
+    { $set: { name, username, email, passwordHash, role, voicePart, active: true, approvalStatus: 'approved' } },
     { upsert: true, new: true }
   );
 }
@@ -20,21 +21,25 @@ async function upsertUser({ name, email, password, role, voicePart }) {
 async function seed() {
   await connectDb();
 
+  const adminUsername = normalizeUsername(process.env.ADMIN_USERNAME || 'admin');
   const adminEmail = (process.env.ADMIN_EMAIL || 'admin@choir.local').toLowerCase();
   const adminPassword = process.env.ADMIN_PASSWORD || 'choiradmin';
 
   await upsertUser({
     name: "St Paul's Choir Admin",
+    username: adminUsername,
     email: adminEmail,
     password: adminPassword,
     role: 'admin',
     voicePart: 'other',
   });
 
-  const parishEmails = parishMembers.map((member) => emailFromName(member.name));
+  const parishUsernames = parishMembers.map((member) => usernameFromName(member.name));
   for (const member of parishMembers) {
+    const username = usernameFromName(member.name);
     await upsertUser({
       name: member.name,
+      username,
       email: emailFromName(member.name),
       password: 'choirpass',
       role: 'member',
@@ -44,7 +49,7 @@ async function seed() {
 
   const extras = await User.find({
     role: 'member',
-    email: { $nin: parishEmails },
+    username: { $nin: parishUsernames },
   });
   const extraIds = extras.map((user) => user._id);
   if (extraIds.length) {
@@ -60,9 +65,9 @@ async function seed() {
   }
 
   console.log('Seed complete.');
-  console.log(`Admin: ${adminEmail} / ${adminPassword}`);
+  console.log(`Admin: ${adminUsername} / ${adminPassword}`);
   console.log(`Parish members: ${parishMembers.length} (from attendance sheet)`);
-  console.log('Member login example: angel.benny@choir.local / choirpass');
+  console.log('Member login example: angel.benny / choirpass');
   process.exit(0);
 }
 

@@ -30,7 +30,8 @@ Copy `.env.example` to `.env`:
 | `MONGODB_URI` | `mongodb://127.0.0.1:27018/choir` | MongoDB connection |
 | `JWT_SECRET` | long random string | Session signing |
 | `CLIENT_ORIGIN` | `http://localhost:5173` | Frontend URL (CORS + cookies) |
-| `ADMIN_EMAIL` | `admin@choir.local` | Seed admin email |
+| `ADMIN_USERNAME` | `admin` | Seed admin login username |
+| `ADMIN_EMAIL` | `admin@choir.local` | Seed admin contact email |
 | `ADMIN_PASSWORD` | `choiradmin` | Seed admin password |
 
 MongoDB uses port **27018** so it does not clash with a local `mongod` on 27017.
@@ -53,12 +54,14 @@ JWT in an **httpOnly cookie** (`token`). Passwords hashed with bcrypt.
 
 ## Logins (after seed)
 
-| Role | Email | Password |
-| --- | --- | --- |
-| Admin | `admin@choir.local` | `choiradmin` |
-| Member | `angel.benny@choir.local` | `choirpass` |
+Sign in with **username** and password (not email).
 
-Member emails: `firstname.lastname@choir.local`
+| Role | Username | Password |
+| --- | --- | --- |
+| Admin | `admin` | `choiradmin` |
+| Member | `angel.benny` | `choirpass` |
+
+Member usernames follow `firstname.lastname` (from the parish roster).
 
 ## Frontend
 

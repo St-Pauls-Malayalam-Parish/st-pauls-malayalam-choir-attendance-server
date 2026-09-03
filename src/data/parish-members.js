@@ -43,9 +43,12 @@ export const parishMembers = [
 ];
 
 export function emailFromName(name) {
-  const slug = name
+  return `${usernameFromName(name)}@choir.local`;
+}
+
+export function usernameFromName(name) {
+  return name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '.')
     .replace(/^\.+|\.+$/g, '');
-  return `${slug}@choir.local`;
 }
