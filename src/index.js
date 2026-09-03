@@ -22,6 +22,11 @@ try {
 const app = express();
 const port = Number(process.env.PORT) || 4000;
 
+// Render terminates TLS and forwards requests; trust one proxy hop for req.ip / rate limits.
+if (process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1);
+}
+
 app.use(helmet());
 app.use(
   cors({

@@ -17,8 +17,7 @@ Node / Express API and MongoDB for the parish choir attendance app.
 npm install
 cp .env.example .env
 npm run mongo:up
-npm run seed          # first time: admin + parish members
-npm run onboard       # first time: attendance history from report
+npm run seed          # first time only: create admin if missing
 npm run dev
 ```
 
@@ -46,8 +45,7 @@ MongoDB uses port **27018** so it does not clash with a local `mongod` on 27017.
 | --- | --- |
 | `npm run dev` | API with auto-reload |
 | `npm run start` | API (production) |
-| `npm run seed` | Create admin + parish members |
-| `npm run onboard` | Load attendance from parish report |
+| `npm run seed` | Create admin account if none exists |
 | `npm run mongo:up` | Start MongoDB in Podman |
 | `npm run mongo:down` | Stop MongoDB container |
 | `npm run mongo:logs` | Tail MongoDB logs |
@@ -58,14 +56,13 @@ JWT in an **httpOnly cookie** (`token`). Passwords hashed with bcrypt.
 
 ## Logins (after seed)
 
-Sign in with **username** and password (not email).
+Sign in with **username** and password (not email). Only the **admin** account is created by `npm run seed`.
 
 | Role | Username | Password |
 | --- | --- | --- |
-| Admin | `admin` | `choiradmin` |
-| Member | `angel.benny` | `choirpass` |
+| Admin | value of `ADMIN_USERNAME` (default `admin`) | value of `ADMIN_PASSWORD` |
 
-Member usernames follow `firstname.lastname` (from the parish roster).
+Members join via **Register** on the frontend (admin approves) or are added under **Admin → Members**.
 
 ## Frontend
 
@@ -99,12 +96,13 @@ Pair with [attendance-application](https://github.com/St-Pauls-Malayalam-Parish/
 
    If you renamed the GitHub repo, update the connected repository under **Settings → Build & Deploy** on your existing Render service (the public URL can stay the same).
 
-3. **Seed production data** (once, from your machine with Atlas URI in `.env`):
+3. **Seed production admin** (once, from your machine with Atlas URI in `.env`):
 
    ```bash
    MONGODB_URI="mongodb+srv://..." npm run seed
-   MONGODB_URI="mongodb+srv://..." npm run onboard
    ```
+
+   Safe to re-run: it only creates an admin when none exists.
 
 4. **Frontend**
    - In [attendance-application](https://github.com/St-Pauls-Malayalam-Parish/attendance-application), set GitHub Actions variable `VITE_API_URL` to your Render URL (e.g. `https://attendance-server.onrender.com` or your existing service URL).

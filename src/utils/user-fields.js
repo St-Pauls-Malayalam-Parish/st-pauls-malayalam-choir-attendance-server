@@ -18,3 +18,10 @@ export function validateEmail(email) {
   }
   return null;
 }
+
+export function usernameFromName(name) {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '.')
+    .replace(/^\.+|\.+$/g, '');
+}

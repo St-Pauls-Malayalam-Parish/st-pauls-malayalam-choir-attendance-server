@@ -2,72 +2,40 @@ import dotenv from 'dotenv';
 import bcrypt from 'bcryptjs';
 import { connectDb } from './db.js';
 import { User } from './models/User.js';
-import { Event } from './models/Event.js';
-import { Attendance } from './models/Attendance.js';
-import { emailFromName, parishMembers, usernameFromName } from './data/parish-members.js';
 import { normalizeUsername } from './utils/user-fields.js';
 
 dotenv.config();
 
-async function upsertUser({ name, username, email, password, role, voicePart }) {
-  const passwordHash = await bcrypt.hash(password, 12);
-  return User.findOneAndUpdate(
-    { username },
-    { $set: { name, username, email, passwordHash, role, voicePart, active: true, approvalStatus: 'approved' } },
-    { upsert: true, new: true }
-  );
-}
-
 async function seed() {
   await connectDb();
+
+  const existingAdmin = await User.findOne({ role: 'admin' });
+  if (existingAdmin) {
+    console.log(`Admin already exists (${existingAdmin.username}) — nothing to seed.`);
+    process.exit(0);
+  }
 
   const adminUsername = normalizeUsername(process.env.ADMIN_USERNAME || 'admin');
   const adminEmail = (process.env.ADMIN_EMAIL || 'admin@choir.local').toLowerCase();
   const adminPassword = process.env.ADMIN_PASSWORD || 'choiradmin';
 
-  await upsertUser({
+  const passwordHash = await bcrypt.hash(adminPassword, 12);
+  await User.create({
     name: "St Paul's Choir Admin",
     username: adminUsername,
     email: adminEmail,
-    password: adminPassword,
+    passwordHash,
     role: 'admin',
     voicePart: 'other',
+    active: true,
+    approvalStatus: 'approved',
   });
 
-  const parishUsernames = parishMembers.map((member) => usernameFromName(member.name));
-  for (const member of parishMembers) {
-    const username = usernameFromName(member.name);
-    await upsertUser({
-      name: member.name,
-      username,
-      email: emailFromName(member.name),
-      password: 'choirpass',
-      role: 'member',
-      voicePart: 'other',
-    });
+  console.log('Admin account created.');
+  console.log(`Sign in: ${adminUsername} / ${adminPassword}`);
+  if (!process.env.ADMIN_PASSWORD) {
+    console.log('Tip: set ADMIN_PASSWORD in .env and change the password after first login.');
   }
-
-  const extras = await User.find({
-    role: 'member',
-    username: { $nin: parishUsernames },
-  });
-  const extraIds = extras.map((user) => user._id);
-  if (extraIds.length) {
-    await Attendance.deleteMany({ user: { $in: extraIds } });
-    await User.deleteMany({ _id: { $in: extraIds } });
-  }
-
-  const importedEvents = await Event.find({ notes: 'parish-import' }).select('_id');
-  const importedIds = importedEvents.map((event) => event._id);
-  await Event.deleteMany({ notes: { $ne: 'parish-import' } });
-  if (importedIds.length) {
-    await Attendance.deleteMany({ event: { $nin: importedIds } });
-  }
-
-  console.log('Seed complete.');
-  console.log(`Admin: ${adminUsername} / ${adminPassword}`);
-  console.log(`Parish members: ${parishMembers.length} (from attendance sheet)`);
-  console.log('Member login example: angel.benny / choirpass');
   process.exit(0);
 }
 

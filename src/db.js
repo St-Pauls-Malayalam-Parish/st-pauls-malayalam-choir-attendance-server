@@ -1,7 +1,6 @@
 import mongoose from 'mongoose';
 import { User } from './models/User.js';
-import { usernameFromName } from './data/parish-members.js';
-import { normalizeUsername } from './utils/user-fields.js';
+import { normalizeUsername, usernameFromName } from './utils/user-fields.js';
 
 async function backfillUsernames() {
   const users = await User.find({
