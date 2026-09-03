@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import { User } from './models/User.js';
+import { Event } from './models/Event.js';
 import { normalizeUsername, usernameFromName } from './utils/user-fields.js';
 
 async function backfillUsernames() {
@@ -40,6 +41,7 @@ export async function connectDb() {
     { approvalStatus: { $exists: false } },
     { $set: { approvalStatus: 'approved' } }
   );
+  await Event.updateMany({ type: 'rehearsal' }, { $set: { type: 'practice' } });
   await backfillUsernames();
   console.log('Connected to MongoDB');
 }

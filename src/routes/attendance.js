@@ -5,6 +5,8 @@ import { Event } from '../models/Event.js';
 import { User } from '../models/User.js';
 import { requireAuth, requireAdmin, approvedMemberFilter } from '../middleware/auth.js';
 import { asyncHandler } from '../utils/async-handler.js';
+import { eventDateQuery } from '../utils/dates.js';
+import { buildPaginationMeta, parsePagination } from '../utils/event-query.js';
 
 const router = Router();
 const STATUSES = ['present', 'absent', 'late', 'excused'];
@@ -27,6 +29,7 @@ function serializeRecord(record) {
           title: event.title,
           date: event.date,
           type: event.type,
+          liturgicalColor: event.liturgicalColor || '',
         }
       : { id: String(event) },
   };
@@ -40,32 +43,6 @@ function summaryFromRecords(records) {
   const counted = counts.present + counts.absent + counts.late;
   const rate = counted === 0 ? 0 : Math.round(((counts.present + counts.late) / counted) * 100);
   return { ...counts, total: records.length, rate };
-}
-
-function parseDay(value, endOfDay) {
-  if (!value) return null;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    return { error: 'Dates must be in YYYY-MM-DD format' };
-  }
-  const date = new Date(`${value}T${endOfDay ? '23:59:59.999' : '00:00:00'}`);
-  if (Number.isNaN(date.getTime())) {
-    return { error: 'Invalid date' };
-  }
-  return { date };
-}
-
-function eventDateQuery(from, to) {
-  const start = parseDay(from, false);
-  const end = parseDay(to, true);
-  if (start?.error) return { error: start.error };
-  if (end?.error) return { error: end.error };
-  if (start?.date && end?.date && start.date > end.date) {
-    return { error: 'Start date must be on or before the end date' };
-  }
-  const range = {};
-  if (start?.date) range.$gte = start.date;
-  if (end?.date) range.$lte = end.date;
-  return { range: Object.keys(range).length ? range : null };
 }
 
 router.get('/me', asyncHandler(async (req, res) => {
@@ -83,20 +60,22 @@ router.get('/me', asyncHandler(async (req, res) => {
   }
 
   const eventFilter = dateQuery.range ? { date: dateQuery.range } : {};
-  const events = await Event.find(eventFilter).sort({ date: -1 }).lean();
-  const eventIds = events.map((event) => event._id);
+  const { page, pageSize, skip } = parsePagination(req.query);
 
-  const records = await Attendance.find({
-    user: req.user._id,
-    ...(eventIds.length ? { event: { $in: eventIds } } : { event: { $in: [] } }),
-  })
-    .populate('event')
-    .lean();
+  const [total, events, records] = await Promise.all([
+    Event.countDocuments(eventFilter),
+    Event.find(eventFilter).sort({ date: -1 }).skip(skip).limit(pageSize).lean(),
+    Attendance.find({ user: req.user._id })
+      .populate({
+        path: 'event',
+        match: eventFilter,
+      })
+      .lean(),
+  ]);
 
+  const filteredRecords = records.filter((record) => record.event);
   const byEvent = new Map(
-    records
-      .filter((record) => record.event)
-      .map((record) => [record.event._id.toString(), record])
+    filteredRecords.map((record) => [record.event._id.toString(), record])
   );
 
   const history = events.map((event) => {
@@ -109,6 +88,7 @@ router.get('/me', asyncHandler(async (req, res) => {
         date: event.date,
         type: event.type,
         notes: event.notes,
+        liturgicalColor: event.liturgicalColor || '',
       },
       status: record?.status ?? (upcoming ? 'upcoming' : 'unmarked'),
       notes: record?.notes || '',
@@ -117,8 +97,9 @@ router.get('/me', asyncHandler(async (req, res) => {
 
   res.json({
     user: req.user.toSafeJSON(),
-    summary: summaryFromRecords(records),
+    summary: summaryFromRecords(filteredRecords),
     history,
+    pagination: buildPaginationMeta({ page, pageSize, total }),
   });
 }));
 
@@ -173,6 +154,7 @@ router.get('/event/:eventId', requireAdmin, asyncHandler(async (req, res) => {
       date: event.date,
       type: event.type,
       notes: event.notes,
+      liturgicalColor: event.liturgicalColor || '',
     },
     roster: members.map((member) => {
       const record = byUser.get(member._id.toString());

@@ -6,6 +6,9 @@ import { Attendance } from '../models/Attendance.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { normalizeUsername, validateEmail, validateUsername } from '../utils/user-fields.js';
 import { asyncHandler } from '../utils/async-handler.js';
+import { eventDateQuery } from '../utils/dates.js';
+import { buildPaginationMeta, parsePagination } from '../utils/event-query.js';
+import { aggregateAttendanceByUsers, summaryFromCounts } from '../utils/attendance-stats.js';
 
 const router = Router();
 const VOICE_PARTS = ['soprano', 'alto', 'tenor', 'bass', 'other'];
@@ -47,14 +50,31 @@ function validateMemberBody({ name, username, email, password, voicePart }, { pa
   return null;
 }
 
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function buildRosterFilter(query) {
+  const filter = { role: 'member', approvalStatus: 'approved', active: true };
+  const search = typeof query.search === 'string' ? query.search.trim() : '';
+
+  if (search) {
+    const term = escapeRegex(search);
+    filter.$or = [
+      { name: { $regex: term, $options: 'i' } },
+      { username: { $regex: term, $options: 'i' } },
+      { email: { $regex: term, $options: 'i' } },
+    ];
+  }
+
+  if (query.voicePart && VOICE_PARTS.includes(query.voicePart)) {
+    filter.voicePart = query.voicePart;
+  }
+
+  return filter;
+}
+
 function serializeMember(member, stats = {}) {
-  const present = stats.present || 0;
-  const absent = stats.absent || 0;
-  const late = stats.late || 0;
-  const excused = stats.excused || 0;
-  const total = stats.total || 0;
-  const counted = present + absent + late;
-  const rate = counted === 0 ? 0 : Math.round(((present + late) / counted) * 100);
   return {
     id: member._id.toString(),
     name: member.name,
@@ -64,9 +84,48 @@ function serializeMember(member, stats = {}) {
     active: member.active,
     approvalStatus: member.approvalStatus || 'pending',
     createdAt: member.createdAt,
-    summary: { present, absent, late, excused, total, rate },
+    summary: summaryFromCounts(stats),
   };
 }
+
+router.get('/roster', asyncHandler(async (req, res) => {
+  const dateQuery = eventDateQuery(req.query.from, req.query.to);
+  if (dateQuery.error) {
+    return res.status(400).json({ error: dateQuery.error });
+  }
+
+  const filter = buildRosterFilter(req.query);
+  const { page, pageSize, skip } = parsePagination(req.query);
+
+  const [total, totalUnfiltered, members] = await Promise.all([
+    User.countDocuments(filter),
+    User.countDocuments({ role: 'member', approvalStatus: 'approved', active: true }),
+    User.find(filter)
+      .select('name username email voicePart active approvalStatus createdAt')
+      .sort({ name: 1 })
+      .skip(skip)
+      .limit(pageSize)
+      .lean(),
+  ]);
+
+  const statsByUser = await aggregateAttendanceByUsers(
+    members.map((member) => member._id),
+    dateQuery.range
+  );
+
+  res.json({
+    members: members.map((member) =>
+      serializeMember(member, statsByUser.get(member._id.toString()))
+    ),
+    pagination: buildPaginationMeta({ page, pageSize, total }),
+    meta: {
+      totalUnfiltered,
+      dateFiltered: Boolean(dateQuery.range),
+      from: req.query.from || '',
+      to: req.query.to || '',
+    },
+  });
+}));
 
 router.get('/', asyncHandler(async (_req, res) => {
   const members = await User.find({ role: 'member' })
@@ -74,27 +133,10 @@ router.get('/', asyncHandler(async (_req, res) => {
     .sort({ createdAt: -1 })
     .lean();
 
-  const ids = members.map((member) => member._id);
-  const records = await Attendance.aggregate([
-    { $match: { user: { $in: ids } } },
-    {
-      $group: {
-        _id: '$user',
-        present: { $sum: { $cond: [{ $eq: ['$status', 'present'] }, 1, 0] } },
-        absent: { $sum: { $cond: [{ $eq: ['$status', 'absent'] }, 1, 0] } },
-        late: { $sum: { $cond: [{ $eq: ['$status', 'late'] }, 1, 0] } },
-        excused: { $sum: { $cond: [{ $eq: ['$status', 'excused'] }, 1, 0] } },
-        total: { $sum: 1 },
-      },
-    },
-  ]);
-  const byUser = new Map(records.map((row) => [row._id.toString(), row]));
-
-  const payload = members.map((member) => serializeMember(member, byUser.get(member._id.toString())));
+  const payload = members.map((member) => serializeMember(member));
 
   res.json({
     pending: payload.filter((member) => member.approvalStatus === 'pending' && member.active),
-    members: payload.filter((member) => member.approvalStatus === 'approved' && member.active),
     inactive: payload.filter((member) => !member.active),
     declined: payload.filter((member) => member.approvalStatus === 'rejected' && member.active),
   });

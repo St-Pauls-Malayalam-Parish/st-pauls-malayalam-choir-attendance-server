@@ -6,10 +6,15 @@ const eventSchema = new mongoose.Schema(
     date: { type: Date, required: true },
     type: {
       type: String,
-      enum: ['rehearsal', 'service', 'concert', 'other'],
-      default: 'rehearsal',
+      enum: ['practice', 'service', 'concert', 'other'],
+      default: 'practice',
     },
     notes: { type: String, trim: true, default: '' },
+    liturgicalColor: {
+      type: String,
+      enum: ['white', 'green', 'purple', 'red', 'black', ''],
+      default: '',
+    },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   },
   { timestamps: true }
