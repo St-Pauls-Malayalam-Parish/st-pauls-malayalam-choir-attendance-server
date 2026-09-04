@@ -9,7 +9,6 @@
     "start": "node src/index.js",
     "seed": "node src/seed.js",
     "import-members": "node scripts/import-members.js",
-    "migrate-email-domain": "node scripts/migrate-email-domain.js",
     "mongo:up": "podman compose up -d",
     "mongo:down": "podman compose down",
     "mongo:logs": "podman compose logs -f mongo"

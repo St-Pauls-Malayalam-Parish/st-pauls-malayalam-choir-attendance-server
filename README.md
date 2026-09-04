@@ -47,7 +47,6 @@ MongoDB uses port **27018** so it does not clash with a local `mongod` on 27017.
 | `npm run start` | API (production) |
 | `npm run seed` | Create admin account if none exists |
 | `npm run import-members` | Import approved members from `data/members.json` |
-| `npm run migrate-email-domain` | Rewrite legacy `@choir.local` emails to `@stpauls.parish` |
 | `npm run mongo:up` | Start MongoDB in Podman |
 | `npm run mongo:down` | Stop MongoDB container |
 | `npm run mongo:logs` | Tail MongoDB logs |
