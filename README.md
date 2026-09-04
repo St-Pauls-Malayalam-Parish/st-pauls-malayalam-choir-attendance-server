@@ -56,9 +56,9 @@ The API powers:
                                        └─────────────────────┘
 ```
 
-**Stack:** Node.js 18+, Express 4, Mongoose 8, bcrypt, JWT, Pino logging, Vitest (tests).
+**Stack:** Node.js 22+ (24 recommended), Express 4, Mongoose 8, bcrypt, JWT, Pino logging, Vitest (tests).
 
-**Requirements:** Node.js 18+, Podman or Docker (local MongoDB only). Tests run without a database.
+**Requirements:** Node.js **22.12+** (or **24** — used in GitHub Actions), Podman or Docker (local MongoDB only). Tests run without a database.
 
 ---
 
@@ -906,6 +906,7 @@ See [Database → Production](#production-mongodb-atlas).
 | Variable | Value |
 | --- | --- |
 | `NODE_ENV` | `production` |
+| `NODE_VERSION` | `24` (Render — or rely on `engines` in `package.json`) |
 | `MONGODB_URI` | Atlas connection string |
 | `JWT_SECRET` | `openssl rand -hex 32` |
 | `CLIENT_ORIGIN` | `https://st-pauls-malayalam-parish.github.io` |
@@ -1073,7 +1074,7 @@ A terminal summary and per-file table are printed after each `npm test`. HTML ou
 - **pull_request** targeting `main` or `master`
 - **workflow_dispatch** (manual run from the Actions tab)
 
-The job uses Node 20, `npm ci`, and `npm test`. No MongoDB service container is required.
+The job uses **Node 24**, `npm ci`, and `npm test`. No MongoDB service container is required.
 
 After pushing, open the repo on GitHub → **Actions** → **Server tests** to view results.
 
