@@ -1,33 +1,70 @@
 import jwt from 'jsonwebtoken';
 import { User } from '../models/User.js';
 import { asyncHandler } from '../utils/async-handler.js';
+import {
+  ACCESS_TOKEN_TTL,
+  REFRESH_TOKEN_TTL_MS,
+  createRefreshToken,
+  hashRefreshToken,
+} from '../utils/tokens.js';
 
-export function signToken(user) {
+const ACCESS_COOKIE_MAX_AGE_MS = 15 * 60 * 1000;
+
+export function sessionScopeForUser(user) {
+  if (user.role === 'admin' || user.approvalStatus === 'approved') {
+    return 'full';
+  }
+  return 'pending';
+}
+
+export function signAccessToken(user, scope = sessionScopeForUser(user)) {
   return jwt.sign(
-    { id: user._id.toString(), role: user.role },
+    { id: user._id.toString(), role: user.role, type: 'access', scope },
     process.env.JWT_SECRET,
-    { expiresIn: '7d' }
+    { expiresIn: ACCESS_TOKEN_TTL }
   );
 }
 
-const cookieOptions = () => {
+/** @deprecated Use signAccessToken */
+export function signToken(user) {
+  return signAccessToken(user);
+}
+
+function cookieOptions(maxAgeMs) {
   const isProduction = process.env.NODE_ENV === 'production';
   return {
     httpOnly: true,
-    // GitHub Pages (frontend) and Render (API) are different origins.
     sameSite: isProduction ? 'none' : 'lax',
     secure: isProduction,
-    maxAge: 7 * 24 * 60 * 60 * 1000,
+    maxAge: maxAgeMs,
     path: '/',
   };
-};
+}
+
+export function setAccessCookie(res, token) {
+  res.cookie('token', token, cookieOptions(ACCESS_COOKIE_MAX_AGE_MS));
+}
+
+export function setRefreshCookie(res, token) {
+  res.cookie('refreshToken', token, cookieOptions(REFRESH_TOKEN_TTL_MS));
+}
 
 export function setAuthCookie(res, token) {
-  res.cookie('token', token, cookieOptions());
+  setAccessCookie(res, token);
+}
+
+export function clearAuthCookies(res) {
+  const options = cookieOptions(0);
+  res.clearCookie('token', options);
+  res.clearCookie('refreshToken', options);
 }
 
 export function clearAuthCookie(res) {
-  res.clearCookie('token', cookieOptions());
+  clearAuthCookies(res);
+}
+
+export function readRefreshToken(req) {
+  return req.cookies?.refreshToken || req.body?.refreshToken || null;
 }
 
 function readAuthToken(req) {
@@ -38,6 +75,42 @@ function readAuthToken(req) {
   return req.cookies?.token;
 }
 
+export async function issueAuthSession(res, user) {
+  const scope = sessionScopeForUser(user);
+  const accessToken = signAccessToken(user, scope);
+  const refreshToken = createRefreshToken();
+
+  user.refreshTokenHash = hashRefreshToken(refreshToken);
+  user.refreshTokenExpiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_MS);
+  await user.save();
+
+  setAccessCookie(res, accessToken);
+  setRefreshCookie(res, refreshToken);
+
+  return {
+    accessToken,
+    refreshToken,
+    scope,
+    user: user.toSafeJSON(),
+  };
+}
+
+export async function revokeRefreshToken(refreshToken) {
+  if (!refreshToken) {
+    return;
+  }
+
+  const hash = hashRefreshToken(refreshToken);
+  const user = await User.findOne({ refreshTokenHash: hash }).select('+refreshTokenHash');
+  if (!user) {
+    return;
+  }
+
+  user.refreshTokenHash = undefined;
+  user.refreshTokenExpiresAt = undefined;
+  await user.save();
+}
+
 export const requireAuth = asyncHandler(async (req, res, next) => {
   const token = readAuthToken(req);
   if (!token) {
@@ -46,16 +119,29 @@ export const requireAuth = asyncHandler(async (req, res, next) => {
 
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET);
+    if (payload.type && payload.type !== 'access') {
+      return res.status(401).json({ error: 'Sign in required' });
+    }
+
     const user = await User.findById(payload.id);
     if (!user || !user.active || user.approvalStatus === 'rejected') {
       return res.status(401).json({ error: 'Sign in required' });
     }
+
     req.user = user;
+    req.authScope = payload.scope === 'full' ? 'full' : 'pending';
     next();
   } catch {
     return res.status(401).json({ error: 'Session expired. Please sign in again.' });
   }
 });
+
+export function requireFullSession(req, res, next) {
+  if (req.authScope !== 'full') {
+    return res.status(403).json({ error: 'Your account is waiting for admin approval' });
+  }
+  next();
+}
 
 export function requireAdmin(req, res, next) {
   if (req.user?.role !== 'admin') {

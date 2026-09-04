@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import mongoose from 'mongoose';
 import { User } from '../models/User.js';
 import { Attendance } from '../models/Attendance.js';
-import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import { requireAuth, requireAdmin, requireFullSession } from '../middleware/auth.js';
 import { normalizeUsername, validateEmail, validateUsername } from '../utils/user-fields.js';
 import { asyncHandler } from '../utils/async-handler.js';
 import { eventDateQuery } from '../utils/dates.js';

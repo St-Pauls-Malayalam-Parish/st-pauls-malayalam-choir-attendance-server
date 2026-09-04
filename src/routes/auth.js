@@ -2,7 +2,15 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import rateLimit from 'express-rate-limit';
 import { User } from '../models/User.js';
-import { requireAuth, setAuthCookie, clearAuthCookie, signToken } from '../middleware/auth.js';
+import {
+  clearAuthCookies,
+  issueAuthSession,
+  readRefreshToken,
+  requireAuth,
+  revokeRefreshToken,
+  sessionScopeForUser,
+} from '../middleware/auth.js';
+import { hashRefreshToken } from '../utils/tokens.js';
 import { normalizeUsername, validateEmail, validateUsername } from '../utils/user-fields.js';
 import { asyncHandler } from '../utils/async-handler.js';
 
@@ -34,6 +42,19 @@ function validateRegister({ name, username, email, password, voicePart }) {
   return null;
 }
 
+function wantsBearerTokens(req) {
+  return req.headers['x-auth-client'] === 'bearer';
+}
+
+function sendAuthResponse(res, statusCode, session, req) {
+  const body = { user: session.user };
+  if (wantsBearerTokens(req)) {
+    body.token = session.accessToken;
+    body.refreshToken = session.refreshToken;
+  }
+  return res.status(statusCode).json(body);
+}
+
 router.post('/register', authLimiter, asyncHandler(async (req, res) => {
   const { name, username, email, password, voicePart = 'other' } = req.body;
   const error = validateRegister({ name, username, email, password, voicePart });
@@ -63,9 +84,8 @@ router.post('/register', authLimiter, asyncHandler(async (req, res) => {
     approvalStatus: 'pending',
   });
 
-  const token = signToken(user);
-  setAuthCookie(res, token);
-  return res.status(201).json({ user: user.toSafeJSON(), token });
+  const session = await issueAuthSession(res, user);
+  return sendAuthResponse(res, 201, session, req);
 }));
 
 router.post('/login', authLimiter, asyncHandler(async (req, res) => {
@@ -92,19 +112,55 @@ router.post('/login', authLimiter, asyncHandler(async (req, res) => {
     });
   }
 
-  const token = signToken(user);
-  setAuthCookie(res, token);
-  return res.json({ user: user.toSafeJSON(), token });
+  const session = await issueAuthSession(res, user);
+  return sendAuthResponse(res, 200, session, req);
 }));
 
-router.post('/logout', (_req, res) => {
-  clearAuthCookie(res);
-  res.json({ ok: true });
-});
+router.post('/refresh', authLimiter, asyncHandler(async (req, res) => {
+  const refreshToken = readRefreshToken(req);
+  if (!refreshToken) {
+    return res.status(401).json({ error: 'Sign in required' });
+  }
 
-router.get('/me', requireAuth, (req, res) => {
+  const hash = hashRefreshToken(refreshToken);
+  const user = await User.findOne({ refreshTokenHash: hash }).select(
+    '+refreshTokenHash +refreshTokenExpiresAt'
+  );
+
+  if (
+    !user ||
+    !user.active ||
+    user.approvalStatus === 'rejected' ||
+    !user.refreshTokenExpiresAt ||
+    user.refreshTokenExpiresAt < new Date()
+  ) {
+    return res.status(401).json({ error: 'Session expired. Please sign in again.' });
+  }
+
+  const session = await issueAuthSession(res, user);
+  return sendAuthResponse(res, 200, session, req);
+}));
+
+router.post('/logout', asyncHandler(async (req, res) => {
+  await revokeRefreshToken(readRefreshToken(req));
+  clearAuthCookies(res);
+  res.json({ ok: true });
+}));
+
+router.get('/me', requireAuth, asyncHandler(async (req, res) => {
+  const scope = sessionScopeForUser(req.user);
+  if (req.authScope === 'pending' && scope === 'full') {
+    const session = await issueAuthSession(res, req.user);
+    const body = { user: session.user };
+    if (wantsBearerTokens(req)) {
+      body.token = session.accessToken;
+      body.refreshToken = session.refreshToken;
+    }
+    return res.json(body);
+  }
+
   res.json({ user: req.user.toSafeJSON() });
-});
+}));
 
 router.post('/change-password', requireAuth, authLimiter, asyncHandler(async (req, res) => {
   const { currentPassword, newPassword } = req.body;
@@ -124,9 +180,13 @@ router.post('/change-password', requireAuth, authLimiter, asyncHandler(async (re
   req.user.passwordHash = await bcrypt.hash(newPassword, 12);
   await req.user.save();
 
-  const token = signToken(req.user);
-  setAuthCookie(res, token);
-  return res.json({ ok: true, token });
+  const session = await issueAuthSession(res, req.user);
+  const body = { ok: true };
+  if (wantsBearerTokens(req)) {
+    body.token = session.accessToken;
+    body.refreshToken = session.refreshToken;
+  }
+  return res.json(body);
 }));
 
 export default router;

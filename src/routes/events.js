@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { Event } from '../models/Event.js';
 import { Attendance } from '../models/Attendance.js';
-import { requireAuth, requireAdmin, requireApproved } from '../middleware/auth.js';
+import { requireAuth, requireAdmin, requireApproved, requireFullSession } from '../middleware/auth.js';
 import { asyncHandler } from '../utils/async-handler.js';
 import { isValidLiturgicalColor } from '../utils/liturgical-colors.js';
 import {
@@ -40,7 +40,7 @@ function validateEventBody({ title, date, type, liturgicalColor }) {
   return null;
 }
 
-router.use(requireAuth, requireApproved);
+router.use(requireAuth, requireFullSession, requireApproved);
 
 router.get('/years', asyncHandler(async (_req, res) => {
   const years = await Event.aggregate([

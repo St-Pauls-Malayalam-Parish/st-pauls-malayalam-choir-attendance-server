@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 import { Attendance } from '../models/Attendance.js';
 import { Event } from '../models/Event.js';
 import { User } from '../models/User.js';
-import { requireAuth, requireAdmin, approvedMemberFilter } from '../middleware/auth.js';
+import { requireAuth, requireAdmin, requireFullSession, approvedMemberFilter } from '../middleware/auth.js';
 import { asyncHandler } from '../utils/async-handler.js';
 import { buildEventFilter, buildPaginationMeta, parsePagination } from '../utils/event-query.js';
 
@@ -11,7 +11,7 @@ const router = Router();
 const STATUSES = ['present', 'absent', 'late', 'excused'];
 const MEMBER_STATUSES = [...STATUSES, 'upcoming', 'unmarked'];
 
-router.use(requireAuth);
+router.use(requireAuth, requireFullSession);
 
 function serializeRecord(record) {
   const user = record.user;

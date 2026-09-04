@@ -53,7 +53,16 @@ MongoDB uses port **27018** so it does not clash with a local `mongod` on 27017.
 
 ## Auth
 
-JWT in an **httpOnly cookie** (`token`). Passwords hashed with bcrypt.
+Access tokens expire in **15 minutes**. Refresh tokens last **7 days** and rotate on each refresh.
+
+| Mode | When | How |
+| --- | --- | --- |
+| **Cookies** | Local dev (Vite proxy, same origin) | httpOnly `token` + `refreshToken` cookies — nothing in JavaScript |
+| **Bearer** | Production (GitHub Pages → Render) | Client sends `X-Auth-Client: bearer`; API returns tokens in JSON for `localStorage` |
+
+Pending registrations receive a **limited session** (`scope: pending`) that only allows `/api/auth/me`, `/api/auth/logout`, `/api/auth/refresh`, and `/api/auth/change-password`. Once approved, `/api/auth/me` upgrades to a full session automatically.
+
+Passwords are hashed with bcrypt.
 
 ## Logins (after seed)
 
