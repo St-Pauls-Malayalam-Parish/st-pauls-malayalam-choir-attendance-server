@@ -3,6 +3,7 @@ import { Event } from '../models/Event.js';
 import { Attendance } from '../models/Attendance.js';
 import { requireAuth, requireAdmin, requireApproved, requireFullSession } from '../middleware/auth.js';
 import { asyncHandler } from '../utils/async-handler.js';
+import { audit } from '../logger.js';
 import { isValidLiturgicalColor } from '../utils/liturgical-colors.js';
 import {
   buildEventFilter,
@@ -86,6 +87,11 @@ router.post('/', requireAdmin, asyncHandler(async (req, res) => {
     createdBy: req.user._id,
   });
 
+  audit('event.created', req, {
+    eventId: event._id.toString(),
+    title: event.title,
+    type: event.type,
+  });
   res.status(201).json({
     event: serializeEvent(event),
   });
@@ -114,6 +120,11 @@ router.patch('/:id', requireAdmin, asyncHandler(async (req, res) => {
     return res.status(404).json({ error: 'Event not found' });
   }
 
+  audit('event.updated', req, {
+    eventId: event._id.toString(),
+    title: event.title,
+    type: event.type,
+  });
   res.json({ event: serializeEvent(event) });
 }));
 
@@ -123,6 +134,10 @@ router.delete('/:id', requireAdmin, asyncHandler(async (req, res) => {
     return res.status(404).json({ error: 'Event not found' });
   }
   await Attendance.deleteMany({ event: event._id });
+  audit('event.deleted', req, {
+    eventId: event._id.toString(),
+    title: event.title,
+  });
   res.json({ ok: true });
 }));
 

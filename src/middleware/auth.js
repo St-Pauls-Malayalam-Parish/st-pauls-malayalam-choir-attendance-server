@@ -11,8 +11,18 @@ import {
 const ACCESS_COOKIE_MAX_AGE_MS = 15 * 60 * 1000;
 
 export function sessionScopeForUser(user) {
+  if (user.mustChangePassword) {
+    return 'must-change-password';
+  }
   if (user.role === 'admin' || user.approvalStatus === 'approved') {
     return 'full';
+  }
+  return 'pending';
+}
+
+function normalizeTokenScope(scope) {
+  if (scope === 'full' || scope === 'must-change-password') {
+    return scope;
   }
   return 'pending';
 }
@@ -129,7 +139,8 @@ export const requireAuth = asyncHandler(async (req, res, next) => {
     }
 
     req.user = user;
-    req.authScope = payload.scope === 'full' ? 'full' : 'pending';
+    req.tokenScope = normalizeTokenScope(payload.scope);
+    req.authScope = sessionScopeForUser(user);
     next();
   } catch {
     return res.status(401).json({ error: 'Session expired. Please sign in again.' });
@@ -137,6 +148,9 @@ export const requireAuth = asyncHandler(async (req, res, next) => {
 });
 
 export function requireFullSession(req, res, next) {
+  if (req.authScope === 'must-change-password') {
+    return res.status(403).json({ error: 'Please set a new password before continuing' });
+  }
   if (req.authScope !== 'full') {
     return res.status(403).json({ error: 'Your account is waiting for admin approval' });
   }

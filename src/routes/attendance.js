@@ -5,6 +5,7 @@ import { Event } from '../models/Event.js';
 import { User } from '../models/User.js';
 import { requireAuth, requireAdmin, requireFullSession, approvedMemberFilter } from '../middleware/auth.js';
 import { asyncHandler } from '../utils/async-handler.js';
+import { audit } from '../logger.js';
 import { buildEventFilter, buildPaginationMeta, parsePagination } from '../utils/event-query.js';
 
 const router = Router();
@@ -256,6 +257,11 @@ router.put('/event/:eventId', requireAdmin, asyncHandler(async (req, res) => {
     await Attendance.bulkWrite(ops);
   }
 
+  audit('attendance.saved', req, {
+    eventId,
+    recordCount: ops.length,
+    eventTitle: event.title,
+  });
   res.json({ ok: true, saved: ops.length });
 }));
 

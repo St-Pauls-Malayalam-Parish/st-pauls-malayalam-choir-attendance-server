@@ -106,8 +106,8 @@ async function uniqueUsername(base, reserved = new Set()) {
 }
 
 function resolveVoicePart(value) {
-  const voicePart = typeof value === 'string' ? value.trim().toLowerCase() : 'other';
-  return VOICE_PARTS.has(voicePart) ? voicePart : 'other';
+  const voicePart = typeof value === 'string' ? value.trim().toLowerCase() : 'tenor';
+  return VOICE_PARTS.has(voicePart) ? voicePart : 'tenor';
 }
 
 function normalizeRow(row, index) {
@@ -210,6 +210,7 @@ async function importMembers(options) {
         voicePart: member.voicePart,
         active: true,
         approvalStatus: 'approved',
+        mustChangePassword: !member.password,
       });
 
       summary.created += 1;
@@ -227,7 +228,7 @@ async function importMembers(options) {
 
   if (!options.dryRun && summary.created > 0) {
     console.log(`\nDefault password for imported members: ${options.defaultPassword}`);
-    console.log('Ask members to change it after first sign-in (Account → Change password).');
+    console.log('Members must set a new password on first sign-in.');
   }
 }
 

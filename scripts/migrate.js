@@ -2,7 +2,7 @@ import dotenv from 'dotenv';
 import mongoose from 'mongoose';
 import { connectDb, disconnectDb } from '../src/db.js';
 import { User } from '../src/models/User.js';
-import { Event } from '../models/Event.js';
+import { Event } from '../src/models/Event.js';
 import { normalizeUsername, usernameFromName } from '../src/utils/user-fields.js';
 
 dotenv.config();

@@ -29,6 +29,7 @@ async function seed() {
     voicePart: 'other',
     active: true,
     approvalStatus: 'approved',
+    mustChangePassword: true,
   });
 
   console.log('Admin account created.');

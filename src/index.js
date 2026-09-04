@@ -4,7 +4,10 @@ import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
 import { validateEnv } from './config/env.js';
-import { connectDb, disconnectDb } from './db.js';
+import { connectDb } from './db.js';
+import { attachGracefulShutdown, shuttingDownMiddleware } from './graceful-shutdown.js';
+import { logger, getRequestLog } from './logger.js';
+import { requestLogger } from './middleware/request-logger.js';
 import authRoutes from './routes/auth.js';
 import eventRoutes from './routes/events.js';
 import attendanceRoutes from './routes/attendance.js';
@@ -16,13 +19,14 @@ dotenv.config();
 try {
   validateEnv();
 } catch (err) {
-  console.error(err.message);
+  logger.fatal({ err }, err.message);
   process.exit(1);
 }
 
 const app = express();
 const port = Number(process.env.PORT) || 4000;
-let server;
+
+let shutdownState = { isShuttingDown: () => false };
 
 // Render terminates TLS and forwards requests; trust one proxy hop for req.ip / rate limits.
 if (process.env.NODE_ENV === 'production') {
@@ -38,6 +42,8 @@ app.use(
 );
 app.use(express.json({ limit: '32kb' }));
 app.use(cookieParser());
+app.use((req, res, next) => shuttingDownMiddleware(shutdownState.isShuttingDown)(req, res, next));
+app.use(requestLogger());
 
 app.use('/api/health', healthRoutes);
 
@@ -50,7 +56,7 @@ app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });
 });
 
-app.use((err, _req, res, _next) => {
+app.use((err, req, res, _next) => {
   if (err.code === 11000) {
     const field = Object.keys(err.keyPattern || {})[0];
     const message =
@@ -60,47 +66,28 @@ app.use((err, _req, res, _next) => {
     return res.status(409).json({ error: message });
   }
 
-  console.error(err);
+  getRequestLog(req).error(
+    {
+      err,
+      requestId: req.id,
+      method: req.method,
+      url: req.originalUrl,
+      userId: req.user?._id?.toString(),
+      username: req.user?.username,
+    },
+    'Unhandled request error'
+  );
   res.status(500).json({ error: 'Something went wrong' });
 });
 
-function shutdown(signal) {
-  console.log(`${signal} received — shutting down`);
-  if (!server) {
-    disconnectDb()
-      .then(() => process.exit(0))
-      .catch(() => process.exit(1));
-    return;
-  }
-
-  server.close(() => {
-    disconnectDb()
-      .then(() => {
-        console.log('Server stopped');
-        process.exit(0);
-      })
-      .catch((err) => {
-        console.error('Error during shutdown', err);
-        process.exit(1);
-      });
-  });
-
-  setTimeout(() => {
-    console.error('Forced shutdown after timeout');
-    process.exit(1);
-  }, 10_000).unref();
-}
-
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-process.on('SIGINT', () => shutdown('SIGINT'));
-
 connectDb()
   .then(() => {
-    server = app.listen(port, '0.0.0.0', () => {
-      console.log(`Choir API listening on port ${port}`);
+    const server = app.listen(port, '0.0.0.0', () => {
+      logger.info({ port }, 'Choir API listening');
     });
+    shutdownState = attachGracefulShutdown(server);
   })
   .catch((err) => {
-    console.error('Failed to start server', err);
+    logger.fatal({ err }, 'Failed to start server');
     process.exit(1);
   });

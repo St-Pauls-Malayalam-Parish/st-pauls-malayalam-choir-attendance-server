@@ -6,6 +6,7 @@ import { Attendance } from '../models/Attendance.js';
 import { requireAuth, requireAdmin, requireFullSession } from '../middleware/auth.js';
 import { normalizeUsername, validateEmail, validateUsername } from '../utils/user-fields.js';
 import { asyncHandler } from '../utils/async-handler.js';
+import { audit } from '../logger.js';
 import { eventDateQuery } from '../utils/dates.js';
 import { buildPaginationMeta, parsePagination } from '../utils/event-query.js';
 import { aggregateAttendanceByUsers, summaryFromCounts } from '../utils/attendance-stats.js';
@@ -175,6 +176,10 @@ router.post('/', asyncHandler(async (req, res) => {
     approvalStatus: 'approved',
   });
 
+  audit('member.created', req, {
+    targetUserId: user._id.toString(),
+    targetUsername: user.username,
+  });
   res.status(201).json({ member: user.toSafeJSON() });
 }));
 
@@ -218,8 +223,16 @@ router.patch('/:id', asyncHandler(async (req, res) => {
   member.voicePart = voicePart;
   if (password) {
     member.passwordHash = await bcrypt.hash(password, 12);
+    member.mustChangePassword = true;
   }
   await member.save();
+
+  if (password) {
+    audit('member.password.reset', req, {
+      targetUserId: member._id.toString(),
+      targetUsername: member.username,
+    });
+  }
 
   res.json({ member: member.toSafeJSON() });
 }));
@@ -237,6 +250,11 @@ router.patch('/:id/approval', asyncHandler(async (req, res) => {
 
   member.approvalStatus = approvalStatus;
   await member.save();
+  audit('member.approval.changed', req, {
+    targetUserId: member._id.toString(),
+    targetUsername: member.username,
+    approvalStatus,
+  });
   res.json({ member: member.toSafeJSON() });
 }));
 
@@ -253,6 +271,11 @@ router.patch('/:id/active', asyncHandler(async (req, res) => {
 
   member.active = active;
   await member.save();
+  audit('member.active.changed', req, {
+    targetUserId: member._id.toString(),
+    targetUsername: member.username,
+    active,
+  });
   res.json({ member: member.toSafeJSON() });
 }));
 
@@ -264,6 +287,10 @@ router.delete('/:id', asyncHandler(async (req, res) => {
 
   await Attendance.deleteMany({ user: member._id });
   await member.deleteOne();
+  audit('member.deleted', req, {
+    targetUserId: member._id.toString(),
+    targetUsername: member.username,
+  });
   res.json({ ok: true });
 }));
 

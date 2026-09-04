@@ -1,154 +1,1009 @@
-# St Paul's Malayalam Parish — Choir (API)
+# St Paul's Malayalam Parish — Choir API
 
-Node / Express API and MongoDB for the parish choir attendance app.
+Node.js / Express REST API with MongoDB for the parish choir attendance application.
 
-**Repo:** [St-Pauls-Malayalam-Parish/attendance-server](https://github.com/St-Pauls-Malayalam-Parish/attendance-server)
+| Resource | URL |
+| --- | --- |
+| **This repo** | [St-Pauls-Malayalam-Parish/attendance-server](https://github.com/St-Pauls-Malayalam-Parish/attendance-server) |
+| **Frontend** | [attendance-application](https://github.com/St-Pauls-Malayalam-Parish/attendance-application) |
+| **Live API** | Your Render service URL (e.g. `https://attendance-server.onrender.com`) |
+| **Live app** | [GitHub Pages](https://st-pauls-malayalam-parish.github.io/attendance-application/) |
 
-**Frontend:** [attendance-application](https://github.com/St-Pauls-Malayalam-Parish/attendance-application)
+---
 
-## Requirements
+## Table of contents
 
-- Node.js 18+
-- Podman or Docker (for local MongoDB)
+1. [Overview](#overview)
+2. [For choir admins](#for-choir-admins)
+3. [Quick start (developers)](#quick-start-developers)
+4. [Project structure](#project-structure)
+5. [Environment variables](#environment-variables)
+6. [npm scripts](#npm-scripts)
+7. [Database](#database)
+8. [Authentication and authorization](#authentication-and-authorization)
+9. [API reference](#api-reference)
+10. [Data models](#data-models)
+11. [Operational scripts](#operational-scripts)
+12. [Logging and monitoring](#logging-and-monitoring)
+13. [Graceful shutdown](#graceful-shutdown)
+14. [Deployment (Render + Atlas)](#deployment-render--atlas)
+15. [Security](#security)
+16. [Troubleshooting](#troubleshooting)
+17. [Development guide](#development-guide)
 
-## Setup
+---
 
-```bash
-npm install
-cp .env.example .env
-npm run mongo:up
-npm run seed          # first time only: create admin if missing
-npm run dev
+## Overview
+
+The API powers:
+
+- **Member sign-in** and self-registration (with admin approval)
+- **Event management** (practices, services, concerts)
+- **Attendance tracking** per event and per member
+- **Roster and statistics** for choir admins
+
+```
+┌─────────────────────┐     HTTPS      ┌─────────────────────┐
+│  React client       │ ─────────────► │  Express API        │
+│  (GitHub Pages)     │   Bearer JWT   │  (Render)           │
+└─────────────────────┘                └──────────┬──────────┘
+                                                  │
+                                                  ▼
+                                       ┌─────────────────────┐
+                                       │  MongoDB Atlas      │
+                                       │  (database: choir)  │
+                                       └─────────────────────┘
 ```
 
-API: [http://localhost:4000](http://localhost:4000)
+**Stack:** Node.js 18+, Express 4, Mongoose 8, bcrypt, JWT, Pino logging.
 
-## Environment
+**Requirements:** Node.js 18+, Podman or Docker (local MongoDB only).
 
-Copy `.env.example` to `.env`:
+---
 
-| Variable | Example | Purpose |
+## For choir admins
+
+This section is for parish choir admins operating the live system — no coding required.
+
+### Roles
+
+| Role | Who | Can do |
 | --- | --- | --- |
-| `PORT` | `4000` | API port |
-| `MONGODB_URI` | `mongodb://127.0.0.1:27018/choir` | MongoDB connection |
-| `JWT_SECRET` | long random string | Session signing |
-| `CLIENT_ORIGIN` | `http://localhost:5173` | Frontend URL (CORS + cookies) |
-| `ADMIN_USERNAME` | `admin` | Seed admin login username |
-| `ADMIN_EMAIL` | `admin@stpauls.parish` | Seed admin contact email |
-| `ADMIN_PASSWORD` | `choiradmin` | Seed admin password |
+| **Admin** | Choir secretary / lead | Everything: events, attendance, members, approvals |
+| **Member** | Singer | View own attendance after account is approved |
 
-MongoDB uses port **27018** so it does not clash with a local `mongod` on 27017.
+Sign in with **username** (not email).
 
-## Scripts
+### First-time production setup
+
+1. A developer deploys the API to Render and the app to GitHub Pages (see [Deployment](#deployment-render--atlas)).
+2. Run the seed script once to create the admin account (developer task).
+3. Admin signs in and is **forced to set a new password** on first login.
+4. Import the choir roster or approve self-registrations.
+
+### Adding members (three ways)
+
+| Method | When to use |
+| --- | --- |
+| **Self-registration** | Singer registers on the app → appears under *Waiting for approval* → admin approves |
+| **Add member** (admin UI) | Create an approved account with a temporary password |
+| **Bulk import** | One-time roster load from `data/members.json` (developer/script) |
+
+### After bulk import
+
+- Default password: `Choir@2026` (unless changed via `MEMBER_DEFAULT_PASSWORD`)
+- Each member **must set a personal password** on first sign-in
+- Share usernames only — never post the shared password in public channels
+
+### Day-to-day admin tasks
+
+| Task | Where in the app |
+| --- | --- |
+| Approve / decline sign-ups | Admin → Members → Waiting for approval |
+| Add a singer manually | Admin → Members → **Add member** |
+| Edit voice part or reset password | Admin → Members → **Edit** on roster row |
+| Deactivate someone (leave choir) | Admin → Members → **Deactivate** |
+| Create practice or service | Admin → Events → **Add event** |
+| Mark attendance | Admin → Attendance → pick event → save roster |
+| Review attendance rates | Admin → Members → Roster (filter by date range) |
+
+### Attendance rate formula
+
+```
+rate = round((present + late) / (present + absent + late) × 100)
+```
+
+Excused absences are tracked but **not** included in the percentage denominator.
+
+### Deactivating vs deleting
+
+| Action | Effect |
+| --- | --- |
+| **Deactivate** | Cannot sign in; hidden from attendance lists; history kept |
+| **Delete permanently** | Removes user and **all** their attendance records (irreversible) |
+
+### Password resets
+
+- **Admin resets member password** in Edit member → member must change it on next login
+- **Member changes own password** → Account → Change password
+
+---
+
+## Quick start (developers)
+
+```bash
+git clone https://github.com/St-Pauls-Malayalam-Parish/attendance-server.git
+cd attendance-server
+npm install
+cp .env.example .env
+# Edit .env — at minimum set JWT_SECRET to a random string (16+ chars)
+
+npm run mongo:up      # start MongoDB on port 27018
+npm run seed          # create admin (first time only)
+npm run dev           # API with auto-reload → http://localhost:4000
+```
+
+Pair with the [frontend](https://github.com/St-Pauls-Malayalam-Parish/attendance-application):
+
+```bash
+cd ../attendance-application   # or clone separately
+npm install
+npm run dev                    # http://localhost:5173 (proxies /api to :4000)
+```
+
+**Local sign-in:** `admin` / `choiradmin` (or your `ADMIN_PASSWORD`) → forced password change on first login.
+
+**Health check:**
+
+```bash
+curl http://localhost:4000/api/health
+```
+
+---
+
+## Project structure
+
+```
+server/
+├── src/
+│   ├── index.js              # App entry, middleware, routes
+│   ├── db.js                 # MongoDB connect/disconnect
+│   ├── logger.js             # Pino logger + audit helper
+│   ├── graceful-shutdown.js  # SIGTERM/SIGINT handling
+│   ├── seed.js               # Create initial admin
+│   ├── config/
+│   │   └── env.js            # Startup env validation
+│   ├── middleware/
+│   │   ├── auth.js           # JWT, cookies, session scopes
+│   │   └── request-logger.js # HTTP request logging
+│   ├── models/
+│   │   ├── User.js
+│   │   ├── Event.js
+│   │   └── Attendance.js
+│   ├── routes/
+│   │   ├── auth.js
+│   │   ├── events.js
+│   │   ├── attendance.js
+│   │   ├── members.js
+│   │   └── health.js
+│   └── utils/                # Validation, pagination, stats, dates
+├── scripts/
+│   ├── import-members.js     # Bulk roster import
+│   └── migrate.js            # One-off data migrations
+├── data/
+│   ├── members.sample.json   # Import template
+│   └── members.json          # Your roster (not committed if private)
+├── docker-compose.yml        # Local MongoDB
+├── .env.example
+└── package.json
+```
+
+---
+
+## Environment variables
+
+Copy `.env.example` to `.env`. The server **refuses to start** if required variables are missing or unsafe (production is stricter).
+
+| Variable | Required | Default | Purpose |
+| --- | --- | --- | --- |
+| `MONGODB_URI` | Yes | — | MongoDB connection string |
+| `JWT_SECRET` | Yes | — | Signs access/refresh tokens (≥16 chars dev, ≥32 prod) |
+| `CLIENT_ORIGIN` | Prod only | `http://localhost:5173` | Frontend URL for CORS and cookies |
+| `PORT` | No | `4000` | HTTP port (Render sets this automatically) |
+| `NODE_ENV` | No | `development` | `production` enables stricter checks, secure cookies |
+| `LOG_LEVEL` | No | `debug` / `info` | Pino log level |
+| `SHUTDOWN_TIMEOUT_MS` | No | `10000` | Graceful shutdown timeout (ms) |
+| `JWT_ACCESS_EXPIRES_IN` | No | `15m` | Access token lifetime |
+| `JWT_REFRESH_EXPIRES_MS` | No | `604800000` | Refresh token lifetime (7 days) |
+| `ADMIN_USERNAME` | No | `admin` | Seed script admin username |
+| `ADMIN_EMAIL` | No | `admin@stpauls.parish` | Seed script admin email |
+| `ADMIN_PASSWORD` | No | `choiradmin` | Seed script admin password |
+| `MEMBER_DEFAULT_PASSWORD` | No | `Choir@2026` | Import script default password |
+
+**Generate a production JWT secret:**
+
+```bash
+openssl rand -hex 32
+```
+
+**Weak JWT placeholders blocked:** `change-this-to-a-long-random-string`, `secret`, `jwt_secret`, `your-secret-here`.
+
+---
+
+## npm scripts
 
 | Command | Description |
 | --- | --- |
-| `npm run dev` | API with auto-reload |
-| `npm run start` | API (production) |
-| `npm run seed` | Create admin account if none exists |
-| `npm run migrate` | One-off data fixes (legacy usernames, event types) — run after upgrades |
-| `npm run import-members` | Import approved members from `data/members.json` |
-| `npm run mongo:up` | Start MongoDB in Podman |
+| `npm run dev` | Start API with `node --watch` (auto-reload on file changes) |
+| `npm run start` | Start API (production) |
+| `npm run seed` | Create admin account if none exists (idempotent) |
+| `npm run import-members` | Bulk import from `data/members.json` |
+| `npm run migrate` | Run one-off data migrations (after upgrades) |
+| `npm run mongo:up` | Start MongoDB container (`podman compose up -d`) |
 | `npm run mongo:down` | Stop MongoDB container |
 | `npm run mongo:logs` | Tail MongoDB logs |
 
-## Auth
+---
 
-Access tokens expire in **15 minutes**. Refresh tokens last **7 days** and rotate on each refresh.
+## Database
+
+### Local (development)
+
+MongoDB runs in Podman/Docker on **host port 27018** (avoids conflict with a system `mongod` on 27017).
+
+```bash
+npm run mongo:up
+```
+
+Default URI: `mongodb://127.0.0.1:27018/choir`
+
+### Production (MongoDB Atlas)
+
+1. Create a free **M0** cluster at [mongodb.com/atlas](https://www.mongodb.com/atlas).
+2. **Database Access** → create user with read/write on `choir`.
+3. **Network Access** → allow `0.0.0.0/0` (or Render egress IPs).
+4. **Connect** → Drivers → copy URI, ensure database name is `choir`:
+
+```
+mongodb+srv://user:pass@cluster.mongodb.net/choir
+```
+
+### Collections
+
+| Collection | Mongoose model | Purpose |
+| --- | --- | --- |
+| `users` | `User` | Admins and members |
+| `events` | `Event` | Practices, services, concerts |
+| `attendances` | `Attendance` | Per-user per-event status |
+
+---
+
+## Authentication and authorization
+
+### Password storage
+
+- bcrypt with cost factor **12**
+- Plain passwords never stored or logged
+
+### Tokens
+
+| Token | Lifetime | Storage |
+| --- | --- | --- |
+| **Access** | 15 minutes | httpOnly cookie `token` or `Authorization: Bearer` header |
+| **Refresh** | 7 days | httpOnly cookie `refreshToken` or request body; SHA-256 hash in DB |
+
+Refresh tokens **rotate** on every `/api/auth/refresh` call.
+
+### Cookie vs Bearer mode
 
 | Mode | When | How |
 | --- | --- | --- |
-| **Cookies** | Local dev (Vite proxy, same origin) | httpOnly `token` + `refreshToken` cookies — nothing in JavaScript |
-| **Bearer** | Production (GitHub Pages → Render) | Client sends `X-Auth-Client: bearer`; API returns tokens in JSON for `localStorage` |
+| **Cookies** | Local dev (Vite proxy, same origin) | httpOnly cookies — tokens never in JavaScript |
+| **Bearer** | Production (GitHub Pages → Render) | Client sends `X-Auth-Client: bearer`; API returns `token` + `refreshToken` in JSON |
 
-Pending registrations receive a **limited session** (`scope: pending`) that only allows `/api/auth/me`, `/api/auth/logout`, `/api/auth/refresh`, and `/api/auth/change-password`. Once approved, `/api/auth/me` upgrades to a full session automatically.
+Production cookies use `SameSite=None; Secure` for cross-origin requests.
 
-Passwords are hashed with bcrypt.
+### Session scopes
 
-## Logins (after seed)
+The access JWT includes a `scope` derived from the user's current state:
 
-Sign in with **username** and password (not email). Only the **admin** account is created by `npm run seed`.
-
-| Role | Username | Password |
+| Scope | When | API access |
 | --- | --- | --- |
-| Admin | value of `ADMIN_USERNAME` (default `admin`) | value of `ADMIN_PASSWORD` |
+| `must-change-password` | `mustChangePassword: true` | Auth endpoints only (change password, me, logout, refresh) |
+| `pending` | Member not yet approved | Auth endpoints only |
+| `full` | Approved member or admin | All permitted routes |
 
-Members join via **Register** on the frontend (admin approves) or are added under **Admin → Members**.
+`GET /api/auth/me` **re-issues** the session when scope changes (e.g. after admin approval or password change).
 
-## Import existing members
+### Who can access what
 
-For a one-time roster import, copy the sample file and edit your choir list:
+| Routes | Pending | Must change password | Member | Admin |
+| --- | :---: | :---: | :---: | :---: |
+| `POST /api/auth/register`, `login` | — | — | — | — |
+| `GET /api/auth/me`, `change-password`, `logout`, `refresh` | ✓ | ✓ | ✓ | ✓ |
+| `GET /api/events/*` | ✗ | ✗ | ✓ | ✓ |
+| `POST/PATCH/DELETE /api/events` | ✗ | ✗ | ✗ | ✓ |
+| `GET /api/attendance/me` | ✗ | ✗ | ✓ | ✓ |
+| `GET/PUT /api/attendance/*` (admin) | ✗ | ✗ | ✗ | ✓ |
+| `/api/members/*` | ✗ | ✓* | ✗ | ✓ |
+
+\* Admins with `mustChangePassword` can still manage members (member routes skip `requireFullSession`) but cannot take attendance until password is changed.
+
+### Rate limiting
+
+Auth endpoints (`register`, `login`, `refresh`, `change-password`): **30 requests per 15 minutes** per IP.
+
+### First-login password change
+
+| Account source | `mustChangePassword` |
+| --- | --- |
+| `npm run seed` (admin) | `true` |
+| `npm run import-members` (shared default password) | `true` |
+| Import with per-row `password` in JSON | `false` |
+| Admin creates member via API/UI | `false` (unless admin sets new password later) |
+| Self-registration | `false` (user chose their own password) |
+
+---
+
+## API reference
+
+Base URL: `/api`  
+All JSON request/response bodies unless noted.  
+Errors: `{ "error": "message" }` with appropriate HTTP status.
+
+### Health
+
+#### `GET /api/health`
+
+No authentication.
+
+**200** (database connected) or **503** (database unreachable):
+
+```json
+{
+  "ok": true,
+  "uptimeSeconds": 123,
+  "database": { "connected": true, "name": "choir" },
+  "timestamp": "2026-01-15T10:00:00.000Z"
+}
+```
+
+---
+
+### Auth
+
+Send `X-Auth-Client: bearer` to receive tokens in JSON responses.
+
+#### `POST /api/auth/register`
+
+Create a pending member account.
+
+**Body:**
+
+```json
+{
+  "name": "Evan Thomas",
+  "username": "evan.thomas",
+  "email": "evan@stpauls.parish",
+  "password": "my-password",
+  "voicePart": "tenor"
+}
+```
+
+| Field | Rules |
+| --- | --- |
+| `name` | ≥2 characters |
+| `username` | 3–32 chars, `a-z`, `0-9`, `.`, `_`, `-` |
+| `email` | Valid email |
+| `password` | ≥8 characters |
+| `voicePart` | Optional: `soprano`, `alto`, `tenor`, `bass`, `other` (default `other`) |
+
+**201:** `{ "user": { ... } }` (+ optional `token`, `refreshToken`)
+
+#### `POST /api/auth/login`
+
+**Body:** `{ "username": "evan.thomas", "password": "..." }`
+
+**200:** `{ "user": { ... } }` (+ optional tokens)  
+**401:** Invalid credentials  
+**403:** Account rejected
+
+#### `POST /api/auth/refresh`
+
+**Cookie:** `refreshToken` — or **body:** `{ "refreshToken": "..." }`
+
+**200:** New session (+ optional tokens)
+
+#### `POST /api/auth/logout`
+
+Revokes refresh token and clears cookies. **200:** `{ "ok": true }`
+
+#### `GET /api/auth/me`
+
+**Auth required.** Returns current user; upgrades session if approval/password state changed.
+
+**200:** `{ "user": { ... } }`
+
+#### `POST /api/auth/change-password`
+
+**Auth required.**
+
+**Body:** `{ "currentPassword": "...", "newPassword": "..." }` — new password ≥8 chars, must differ from current.
+
+**200:** `{ "ok": true, "user": { ... } }` (+ optional tokens)
+
+---
+
+### User object (`user` / `member`)
+
+```json
+{
+  "id": "64f1a2b3c4d5e6f7a8b9c0d1",
+  "name": "Evan Thomas",
+  "username": "evan.thomas",
+  "email": "evan@stpauls.parish",
+  "role": "member",
+  "voicePart": "tenor",
+  "active": true,
+  "approvalStatus": "approved",
+  "mustChangePassword": false
+}
+```
+
+`role`: `member` | `admin`  
+`approvalStatus`: `pending` | `approved` | `rejected`
+
+---
+
+### Events
+
+**Read:** full session + approved. **Write:** admin only.
+
+#### `GET /api/events/years`
+
+Distinct event years, descending. **200:** `{ "years": [2026, 2025] }`
+
+#### `GET /api/events`
+
+Paginated list.
+
+| Query param | Description |
+| --- | --- |
+| `search` | Title/notes text search |
+| `type` | `practice`, `service`, `concert`, `other` |
+| `liturgicalColor` | `white`, `green`, `purple`, `red`, `black`, or `__none__` |
+| `year` | Calendar year |
+| `from`, `to` | Date range (`YYYY-MM-DD`) |
+| `page`, `limit` | Pagination (default page 1, limit 10; max 100) |
+
+**200:**
+
+```json
+{
+  "events": [
+    {
+      "id": "...",
+      "title": "Friday practice",
+      "date": "2026-01-10T18:30:00.000Z",
+      "type": "practice",
+      "notes": "",
+      "liturgicalColor": "green"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "pageSize": 10,
+    "total": 25,
+    "totalPages": 3,
+    "rangeStart": 1,
+    "rangeEnd": 10,
+    "hasPrevious": false,
+    "hasNext": true
+  },
+  "meta": { "totalUnfiltered": 25 }
+}
+```
+
+#### `POST /api/events`
+
+**Admin.** **Body:**
+
+```json
+{
+  "title": "Friday practice",
+  "date": "2026-01-10T18:30:00.000Z",
+  "type": "practice",
+  "notes": "Bring folders",
+  "liturgicalColor": "green"
+}
+```
+
+`type`: `practice` | `service` | `concert` | `other`  
+`liturgicalColor`: `white` | `green` | `purple` | `red` | `black` | `""`
+
+**201:** `{ "event": { ... } }`
+
+#### `PATCH /api/events/:id`
+
+**Admin.** Same body as create. **200:** `{ "event": { ... } }`
+
+#### `DELETE /api/events/:id`
+
+**Admin.** Deletes event and all attendance records. **200:** `{ "ok": true }`
+
+---
+
+### Attendance
+
+#### `GET /api/attendance/me`
+
+**Member.** Own attendance history with summary.
+
+Supports event filters (`search`, `type`, `liturgicalColor`, `year`, `from`, `to`), `status` filter (`present`, `absent`, `late`, `excused`, `upcoming`, `unmarked`), and `page`/`limit`.
+
+**200:**
+
+```json
+{
+  "user": { ... },
+  "summary": {
+    "present": 12,
+    "absent": 2,
+    "late": 1,
+    "excused": 0,
+    "total": 15,
+    "rate": 87
+  },
+  "history": [
+    {
+      "event": { "id", "title", "date", "type", "liturgicalColor" },
+      "status": "present",
+      "notes": ""
+    }
+  ],
+  "pagination": { ... },
+  "meta": { "totalUnfiltered": 20 }
+}
+```
+
+#### `GET /api/attendance`
+
+**Admin.** Optional `eventId`, `userId` query filters.
+
+**200:** `{ "records": [ { "id", "status", "notes", "user": { ... }, "event": { ... } } ] }`
+
+#### `GET /api/attendance/event/:eventId`
+
+**Admin.** Roster for one event.
+
+**200:**
+
+```json
+{
+  "event": { "id", "title", "date", "type", "notes", "liturgicalColor" },
+  "roster": [
+    {
+      "id": "userId",
+      "name": "Evan Thomas",
+      "email": "evan@stpauls.parish",
+      "voicePart": "tenor",
+      "status": "present",
+      "notes": ""
+    }
+  ]
+}
+```
+
+Unmarked members have `status: ""`.
+
+#### `PUT /api/attendance/event/:eventId`
+
+**Admin.** Bulk save attendance.
+
+**Body:**
+
+```json
+{
+  "records": [
+    { "userId": "...", "status": "present", "notes": "" },
+    { "userId": "...", "status": "late", "notes": "Traffic" }
+  ]
+}
+```
+
+`status`: `present` | `absent` | `late` | `excused`  
+`notes`: max 500 characters
+
+**200:** `{ "ok": true, "saved": 41 }`
+
+---
+
+### Members (admin only)
+
+All routes require `role: admin`.
+
+#### `GET /api/members`
+
+Lists non-roster members.
+
+**200:**
+
+```json
+{
+  "pending": [ { ...member } ],
+  "inactive": [ { ...member } ],
+  "declined": [ { ...member } ]
+}
+```
+
+#### `GET /api/members/roster`
+
+Approved active members with attendance statistics.
+
+| Query param | Description |
+| --- | --- |
+| `search` | Name, username, or email |
+| `voicePart` | Filter by voice |
+| `from`, `to` | Date range for stats (`YYYY-MM-DD`) |
+| `page`, `limit` | Pagination |
+
+**200:**
+
+```json
+{
+  "members": [
+    {
+      "id": "...",
+      "name": "Evan Thomas",
+      "username": "evan.thomas",
+      "email": "evan@stpauls.parish",
+      "voicePart": "tenor",
+      "active": true,
+      "approvalStatus": "approved",
+      "createdAt": "...",
+      "summary": { "present": 10, "absent": 1, "late": 2, "excused": 0, "total": 13, "rate": 92 }
+    }
+  ],
+  "pagination": { ... },
+  "meta": { "totalUnfiltered": 41, "dateFiltered": false, "from": "", "to": "" }
+}
+```
+
+#### `POST /api/members`
+
+Create an approved member.
+
+**Body:** `{ "name", "username", "email", "password", "voicePart?" }`
+
+**201:** `{ "member": { ... } }`
+
+#### `PATCH /api/members/:id`
+
+Update member. Optional `password` resets password and sets `mustChangePassword: true`.
+
+**200:** `{ "member": { ... } }`
+
+#### `PATCH /api/members/:id/approval`
+
+**Body:** `{ "approvalStatus": "approved" | "rejected" | "pending" }`
+
+#### `PATCH /api/members/:id/active`
+
+**Body:** `{ "active": true | false }`
+
+#### `DELETE /api/members/:id`
+
+Permanently deletes member and all attendance. **200:** `{ "ok": true }`
+
+---
+
+## Data models
+
+### User
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `name` | String | Required |
+| `username` | String | Unique, lowercase |
+| `email` | String | Unique, lowercase |
+| `passwordHash` | String | bcrypt; never exposed |
+| `role` | String | `member` (default) or `admin` |
+| `voicePart` | String | `soprano`, `alto`, `tenor`, `bass`, `other` |
+| `active` | Boolean | Default `true` |
+| `approvalStatus` | String | `pending`, `approved`, `rejected` |
+| `mustChangePassword` | Boolean | Forces password change on login |
+| `refreshTokenHash` | String | Internal; not selected by default |
+| `refreshTokenExpiresAt` | Date | Internal |
+
+### Event
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `title` | String | Required |
+| `date` | Date | Required |
+| `type` | String | `practice`, `service`, `concert`, `other` |
+| `notes` | String | Optional |
+| `liturgicalColor` | String | `white`, `green`, `purple`, `red`, `black`, `""` |
+| `createdBy` | ObjectId → User | Required |
+
+Index: `{ date: -1 }`
+
+### Attendance
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `user` | ObjectId → User | Required |
+| `event` | ObjectId → Event | Required |
+| `status` | String | `present`, `absent`, `late`, `excused` |
+| `notes` | String | Max 500 chars |
+| `markedBy` | ObjectId → User | Admin who saved |
+
+Unique index: `{ user: 1, event: 1 }` (one record per member per event)
+
+---
+
+## Operational scripts
+
+### Seed (`npm run seed`)
+
+Creates the **first admin** if none exists.
+
+| Setting | Env var | Default |
+| --- | --- | --- |
+| Username | `ADMIN_USERNAME` | `admin` |
+| Email | `ADMIN_EMAIL` | `admin@stpauls.parish` |
+| Password | `ADMIN_PASSWORD` | `choiradmin` |
+
+Sets `mustChangePassword: true`. **Idempotent** — safe to re-run; skips if admin already exists.
+
+**Production (one time):**
+
+```bash
+MONGODB_URI="mongodb+srv://..." npm run seed
+```
+
+### Import members (`npm run import-members`)
+
+Bulk create **approved** members from JSON.
 
 ```bash
 cp data/members.sample.json data/members.json
-# edit data/members.json — one object per singer
-npm run import-members -- --dry-run
-npm run import-members
+# Edit data/members.json
+
+npm run import-members -- --dry-run    # preview
+npm run import-members                # write to database
 ```
 
-Each row needs at least a **name**. Optional fields: `username`, `email` (defaults to `username@stpauls.parish`), `voicePart` (`soprano` | `alto` | `tenor` | `bass` | `other`), and `password` (otherwise all imported members share the default).
+**Options:**
 
-Default password is `Choir@2026`, or set `MEMBER_DEFAULT_PASSWORD` in `.env`:
+| Flag | Description |
+| --- | --- |
+| `--file <path>` | JSON file (default: `data/members.json`) |
+| `--default-password <pw>` | Shared password when row has no `password` |
+| `--dry-run` | Validate without writing |
+| `--help` | Usage |
+
+**Row format:**
+
+```json
+{
+  "name": "Evan Thomas",
+  "username": "evan.thomas",
+  "email": "evan@stpauls.parish",
+  "voicePart": "tenor",
+  "password": "optional-per-row-password"
+}
+```
+
+| Field | Required | Default |
+| --- | --- | --- |
+| `name` | Yes | — |
+| `username` | No | Derived from name (`evan.thomas`) |
+| `email` | No | `username@stpauls.parish` |
+| `voicePart` | No | `tenor` if missing/invalid |
+| `password` | No | `MEMBER_DEFAULT_PASSWORD` or `Choir@2026` |
+
+- Skips existing username/email (no duplicates)
+- `mustChangePassword: true` when using shared default password
+- Auto-suffixes username conflicts (`rigin2`, etc.)
+
+### Migrate (`npm run migrate`)
+
+One-off fixes after upgrades. Run once when upgrading an older database:
+
+1. Backfill missing `approvalStatus` → `approved`
+2. Rename event type `rehearsal` → `practice`
+3. Backfill missing `username` from email or name
 
 ```bash
-MEMBER_DEFAULT_PASSWORD='Choir@2026' npm run import-members
+npm run migrate
 ```
 
-Imported members are created as **approved** and can sign in immediately with their username. Ask them to change their password under **Account** after first login.
+---
 
-The script skips anyone whose username or email already exists.
+## Logging and monitoring
 
-## Frontend
+Uses [Pino](https://getpino.io/) structured logging.
 
-Pair with [attendance-application](https://github.com/St-Pauls-Malayalam-Parish/attendance-application). Set `CLIENT_ORIGIN` to the frontend URL.
+| Environment | Output |
+| --- | --- |
+| Development | Colorized (`pino-pretty`) |
+| Production | JSON lines (Render log viewer) |
 
-## Deploy on Render
+| What | Details |
+| --- | --- |
+| HTTP requests | Method, path, status, duration, `X-Request-Id` |
+| Health checks | Excluded (noise reduction) |
+| Audit events | `audit` field: login, logout, password change, member approval, attendance save, etc. |
+| Errors | 500s log request ID, route, user — client sees generic message |
 
-1. **MongoDB Atlas** (free M0 cluster)
-   - Create a cluster at [mongodb.com/atlas](https://www.mongodb.com/atlas).
-   - Database Access → add a user with read/write.
-   - Network Access → allow `0.0.0.0/0` (or Render’s egress IPs).
-   - Connect → Drivers → copy the connection string and set database name to `choir`.
+**Audit event examples:** `auth.login.success`, `auth.login.failed`, `auth.password.changed`, `member.approval.changed`, `event.created`, `attendance.saved`
 
-2. **Render Web Service**
-   - [New Web Service](https://dashboard.render.com/) → connect repo [attendance-server](https://github.com/St-Pauls-Malayalam-Parish/attendance-server).
-   - **Build command:** `npm install`
-   - **Start command:** `npm start`
-   - **Environment variables:**
+**Never logged:** passwords, tokens, refresh tokens.
 
-   | Variable | Value |
-   | --- | --- |
-   | `NODE_ENV` | `production` |
-   | `MONGODB_URI` | Atlas connection string |
-   | `JWT_SECRET` | long random string |
-   | `CLIENT_ORIGIN` | `https://st-pauls-malayalam-parish.github.io` |
-   | `ADMIN_USERNAME` | `admin` |
-   | `ADMIN_EMAIL` | (optional, for seed) |
-   | `ADMIN_PASSWORD` | (optional, for seed) |
+Set `LOG_LEVEL=debug` locally; `info` in production.
 
-   Render sets `PORT` automatically — do not override it.
+---
 
-   If you renamed the GitHub repo, update the connected repository under **Settings → Build & Deploy** on your existing Render service (the public URL can stay the same).
+## Graceful shutdown
 
-3. **Seed production admin** (once, from your machine with Atlas URI in `.env`):
+On `SIGTERM` or `SIGINT` (Render deploy, Ctrl+C):
 
-   ```bash
-   MONGODB_URI="mongodb+srv://..." npm run seed
-   ```
+1. New requests → **503** `Server is shutting down`
+2. In-flight HTTP requests drain
+3. MongoDB disconnects
+4. Process exits — or force-kills after `SHUTDOWN_TIMEOUT_MS` (default 10s)
 
-   Safe to re-run: it only creates an admin when none exists.
+---
 
-4. **Frontend**
-   - In [attendance-application](https://github.com/St-Pauls-Malayalam-Parish/attendance-application), set GitHub Actions variable `VITE_API_URL` to your Render URL (e.g. `https://attendance-server.onrender.com` or your existing service URL).
-   - Redeploy the client workflow.
+## Deployment (Render + Atlas)
 
-5. **Smoke test**
-   - `GET https://<your-service>.onrender.com/api/health` → `{ "ok": true, "database": { "connected": true, "name": "choir" }, ... }`
-   - Returns **503** if MongoDB is unreachable.
-   - Sign in from the GitHub Pages app; cookies use `SameSite=None; Secure` in production.
+### 1. MongoDB Atlas
 
-## Git remote
+See [Database → Production](#production-mongodb-atlas).
+
+### 2. Render Web Service
+
+1. [New Web Service](https://dashboard.render.com/) → connect [attendance-server](https://github.com/St-Pauls-Malayalam-Parish/attendance-server).
+2. **Build command:** `npm install`
+3. **Start command:** `npm start`
+4. **Do not set `PORT`** — Render provides it.
+
+| Variable | Value |
+| --- | --- |
+| `NODE_ENV` | `production` |
+| `MONGODB_URI` | Atlas connection string |
+| `JWT_SECRET` | `openssl rand -hex 32` |
+| `CLIENT_ORIGIN` | `https://st-pauls-malayalam-parish.github.io` |
+| `LOG_LEVEL` | `info` |
+| `ADMIN_USERNAME` | `admin` (for seed) |
+| `ADMIN_PASSWORD` | Strong password (for seed) |
+
+### 3. Seed production admin
+
+```bash
+MONGODB_URI="mongodb+srv://..." ADMIN_PASSWORD="your-strong-password" npm run seed
+```
+
+### 4. Import production roster (optional)
+
+```bash
+MONGODB_URI="mongodb+srv://..." npm run import-members
+```
+
+### 5. Frontend
+
+In [attendance-application](https://github.com/St-Pauls-Malayalam-Parish/attendance-application):
+
+- Set GitHub Actions variable `VITE_API_URL` to your Render URL
+- Redeploy the client workflow
+
+### 6. Smoke test
+
+```bash
+curl https://<your-service>.onrender.com/api/health
+```
+
+Expect `200` with `"database": { "connected": true }`.
+
+Sign in from GitHub Pages with admin credentials → set new password.
+
+---
+
+## Security
+
+| Control | Implementation |
+| --- | --- |
+| Password hashing | bcrypt (cost 12) |
+| Session tokens | JWT access (15m) + rotating refresh (7d, hashed at rest) |
+| httpOnly cookies | Local dev — tokens not in JavaScript |
+| Rate limiting | 30 req / 15 min on auth endpoints |
+| CORS | Single origin (`CLIENT_ORIGIN`), credentials enabled |
+| Helmet | Security headers |
+| Body size limit | 32 KB JSON |
+| Env validation | Weak JWT secrets blocked; `CLIENT_ORIGIN` required in prod |
+| Approval workflow | Pending users cannot access roster or attendance |
+| Forced password change | Seed/import default passwords |
+| Audit logging | Auth and admin actions |
+| Error sanitization | Generic 500 messages to clients |
+| Trust proxy | Enabled in production (correct IP for rate limits) |
+
+### Recommendations for production
+
+1. Change default `ADMIN_PASSWORD` before or immediately after seed
+2. Use unique passwords per imported member (or enforce first-login change — already enabled for shared defaults)
+3. Rotate `JWT_SECRET` only with a planned logout (invalidates all sessions)
+4. Restrict Atlas network access to known IPs when possible
+5. Review Render logs for repeated `auth.login.failed` audit events
+
+---
+
+## Troubleshooting
+
+| Problem | Check |
+| --- | --- |
+| `Invalid environment` on start | `MONGODB_URI`, `JWT_SECRET` length, `CLIENT_ORIGIN` in production |
+| `503` on `/api/health` | MongoDB not running (`npm run mongo:up`) or wrong Atlas URI |
+| Login works locally, not on GitHub Pages | `VITE_API_URL` set? `CLIENT_ORIGIN` matches Pages URL? |
+| CORS error in browser | `CLIENT_ORIGIN` must exactly match frontend URL (no trailing slash mismatch) |
+| `Session expired` immediately | Clock skew rare; check refresh token; clear browser storage |
+| Member sees "waiting for approval" | Admin → Members → Approve |
+| Forced password screen every login | `mustChangePassword` still true — complete change-password flow |
+| Import skips everyone | Username/email already exists — expected on re-run |
+| Render cold start slow | Free tier spins down; first request may take ~30s |
+| `npm run migrate` fails | Ensure `MONGODB_URI` is set; run against correct database |
+
+**Clear stale client tokens (production):** remove `choir_auth_token` and `choir_refresh_token` from browser localStorage.
+
+**Local dev login:**
+
+```bash
+# Terminal 1
+cd server && npm run dev
+
+# Terminal 2
+cd client && npm run dev
+# Leave VITE_API_URL empty — Vite proxies /api to :4000
+```
+
+---
+
+## Development guide
+
+### Running tests manually
+
+There is no automated test suite yet. Verify changes with:
+
+```bash
+curl http://localhost:4000/api/health
+# Sign in via client at http://localhost:5173
+```
+
+### Adding a new route
+
+1. Create or extend a file in `src/routes/`
+2. Use `asyncHandler` from `src/utils/async-handler.js`
+3. Apply middleware: `requireAuth`, `requireFullSession`, `requireAdmin` as needed
+4. Mount in `src/index.js`
+5. Add `audit()` calls for admin writes
+6. Document the endpoint in this README
+
+### Code conventions
+
+- ES modules (`import` / `export`)
+- Mongoose `strictQuery: true`
+- Usernames normalized to lowercase
+- ObjectIds validated before queries
+- Public user data via `user.toSafeJSON()` only
+
+### Git remote
 
 ```bash
 git remote set-url origin https://github.com/St-Pauls-Malayalam-Parish/attendance-server.git
 ```
+
+---
+
+## License
+
+Private parish project. All rights reserved by St Paul's Malayalam Parish, Pune.

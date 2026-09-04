@@ -18,6 +18,7 @@ const userSchema = new mongoose.Schema(
       enum: ['pending', 'approved', 'rejected'],
       default: 'pending',
     },
+    mustChangePassword: { type: Boolean, default: false },
     refreshTokenHash: { type: String, select: false },
     refreshTokenExpiresAt: { type: Date, select: false },
   },
@@ -34,6 +35,7 @@ userSchema.methods.toSafeJSON = function toSafeJSON() {
     voicePart: this.voicePart,
     active: this.active,
     approvalStatus: this.approvalStatus,
+    mustChangePassword: this.mustChangePassword,
   };
 };
 
