@@ -29,7 +29,8 @@ Node.js / Express REST API with MongoDB for the parish choir attendance applicat
 14. [Deployment (Render + Atlas)](#deployment-render--atlas)
 15. [Security](#security)
 16. [Troubleshooting](#troubleshooting)
-17. [Development guide](#development-guide)
+17. [Testing](#testing)
+18. [Development guide](#development-guide)
 
 ---
 
@@ -55,9 +56,9 @@ The API powers:
                                        └─────────────────────┘
 ```
 
-**Stack:** Node.js 18+, Express 4, Mongoose 8, bcrypt, JWT, Pino logging.
+**Stack:** Node.js 18+, Express 4, Mongoose 8, bcrypt, JWT, Pino logging, Vitest (tests).
 
-**Requirements:** Node.js 18+, Podman or Docker (local MongoDB only).
+**Requirements:** Node.js 18+, Podman or Docker (local MongoDB only). Tests run without a database.
 
 ---
 
@@ -159,14 +160,24 @@ npm run dev                    # http://localhost:5173 (proxies /api to :4000)
 curl http://localhost:4000/api/health
 ```
 
+**Run tests** (no MongoDB required):
+
+```bash
+npm test
+```
+
 ---
 
 ## Project structure
 
 ```
 server/
+├── .github/
+│   └── workflows/
+│       └── test.yml          # GitHub Actions — run tests on push/PR
 ├── src/
-│   ├── index.js              # App entry, middleware, routes
+│   ├── index.js              # Bootstrap: env, DB, listen, graceful shutdown
+│   ├── app.js                # Express app factory (createApp) — used in tests
 │   ├── db.js                 # MongoDB connect/disconnect
 │   ├── logger.js             # Pino logger + audit helper
 │   ├── graceful-shutdown.js  # SIGTERM/SIGINT handling
@@ -187,6 +198,12 @@ server/
 │   │   ├── members.js
 │   │   └── health.js
 │   └── utils/                # Validation, pagination, stats, dates
+├── tests/
+│   ├── setup.js              # Global test env + mongoose/model mocks
+│   ├── helpers/              # Fixtures, model mocks, mongoose mock
+│   ├── unit/                 # Utils, middleware, infrastructure
+│   ├── routes/               # API route integration tests (supertest)
+│   └── workflows/            # End-to-end flows (e.g. must-change-password)
 ├── scripts/
 │   ├── import-members.js     # Bulk roster import
 │   └── migrate.js            # One-off data migrations
@@ -194,6 +211,7 @@ server/
 │   ├── members.sample.json   # Import template
 │   └── members.json          # Your roster (not committed if private)
 ├── docker-compose.yml        # Local MongoDB
+├── vitest.config.js          # Test runner + coverage thresholds
 ├── .env.example
 └── package.json
 ```
@@ -242,6 +260,10 @@ openssl rand -hex 32
 | `npm run mongo:up` | Start MongoDB container (`podman compose up -d`) |
 | `npm run mongo:down` | Stop MongoDB container |
 | `npm run mongo:logs` | Tail MongoDB logs |
+| `npm test` | Run Vitest with coverage report and thresholds |
+| `npm run test:fast` | Run tests only (no coverage — faster locally) |
+| `npm run test:watch` | Vitest watch mode |
+| `npm run test:coverage` | Same as `npm test` |
 
 ---
 
@@ -342,6 +364,16 @@ Auth endpoints (`register`, `login`, `refresh`, `change-password`): **30 request
 | Import with per-row `password` in JSON | `false` |
 | Admin creates member via API/UI | `false` (unless admin sets new password later) |
 | Self-registration | `false` (user chose their own password) |
+
+### Password-change workflow (API behaviour)
+
+Typical first-login path after seed or bulk import:
+
+1. **Login** → access token scope `must-change-password`; `user.mustChangePassword: true` in response.
+2. **Restricted access** → only auth routes work (`/me`, `/change-password`, `/refresh`, `/logout`). Events and attendance return **403** until password is changed.
+3. **Admin exception** → `/api/members/*` remains available to admins with `mustChangePassword` (member routes do not use `requireFullSession`), so roster can be managed before the admin changes their own password.
+4. **Change password** → `POST /api/auth/change-password` clears the flag and issues a new session with scope `full`.
+5. **Stale token** → `GET /api/auth/me` re-issues the session when JWT scope lags behind the user record (e.g. after approval or password change).
 
 ---
 
@@ -869,6 +901,8 @@ See [Database → Production](#production-mongodb-atlas).
 3. **Start command:** `npm start`
 4. **Do not set `PORT`** — Render provides it.
 
+**CI:** Pushes and pull requests to `main` / `master` run the test workflow (see [Testing](#testing)) before you merge. A failing test or coverage threshold blocks a green check on GitHub.
+
 | Variable | Value |
 | --- | --- |
 | `NODE_ENV` | `production` |
@@ -952,6 +986,9 @@ Sign in from GitHub Pages with admin credentials → set new password.
 | Import skips everyone | Username/email already exists — expected on re-run |
 | Render cold start slow | Free tier spins down; first request may take ~30s |
 | `npm run migrate` fails | Ensure `MONGODB_URI` is set; run against correct database |
+| Tests fail locally but app works | Run `npm test` from `server/`; ensure `npm ci` matches lockfile |
+| GitHub Actions test job fails | Open Actions → failed run → expand **Run tests with coverage** log |
+| Coverage threshold failure | Add tests for uncovered branches or adjust `vitest.config.js` thresholds deliberately |
 
 **Clear stale client tokens (production):** remove `choir_auth_token` and `choir_refresh_token` from browser localStorage.
 
@@ -968,25 +1005,99 @@ cd client && npm run dev
 
 ---
 
-## Development guide
+## Testing
 
-### Running tests manually
+Automated tests use **Vitest** and **Supertest**. They do **not** connect to MongoDB — Mongoose and all models are mocked in memory (`tests/setup.js`, `tests/helpers/`).
 
-There is no automated test suite yet. Verify changes with:
+### Commands
+
+| Command | What it does |
+| --- | --- |
+| `npm test` | Run all tests with coverage report and threshold checks |
+| `npm run test:fast` | Run tests only (no coverage — faster for tight feedback) |
+| `npm run test:watch` | Watch mode during development |
+| `npm run test:coverage` | Same as `npm test` |
 
 ```bash
-curl http://localhost:4000/api/health
-# Sign in via client at http://localhost:5173
+npm test
 ```
+
+### Coverage
+
+Coverage is collected from `src/**/*.js`, excluding bootstrap/scripts and schema files:
+
+| Excluded | Reason |
+| --- | --- |
+| `src/index.js` | Server bootstrap only |
+| `src/seed.js` | One-off script |
+| `src/models/**` | Mongoose schemas; exercised via mocked route tests |
+
+**Minimum thresholds** (configured in `vitest.config.js`):
+
+| Metric | Threshold |
+| --- | --- |
+| Lines | 95% |
+| Statements | 93% |
+| Functions | 94% |
+| Branches | 85% |
+
+A terminal summary and per-file table are printed after each `npm test`. HTML output is written to `coverage/` (gitignored).
+
+### Test layout
+
+| Path | Purpose |
+| --- | --- |
+| `tests/setup.js` | Test env vars, rate-limit mock, global mongoose/model mocks |
+| `tests/helpers/fixtures.js` | `buildUser`, `buildAdmin`, `authHeader`, session scope helpers |
+| `tests/helpers/model-mocks.js` | Mocked `User`, `Event`, `Attendance` with chainable queries |
+| `tests/helpers/mongoose-mock.js` | Mocked `mongoose.connect` / health checks |
+| `tests/unit/` | Utils, `validateEnv`, auth middleware, logger, shutdown |
+| `tests/routes/` | HTTP tests per route module via `createApp()` |
+| `tests/workflows/` | Multi-step flows (e.g. must-change-password login → change → unlock) |
+
+`src/app.js` exports `createApp()` so route tests mount the real Express stack without starting the HTTP server or database.
+
+### What is covered
+
+- Auth: register, login, refresh, logout, cookie and bearer modes, session scopes
+- **Must-change-password** workflow: restricted routes, admin member management, unlock after change
+- Events, attendance, members: validation, pagination, conflicts, admin guards
+- Error handling: 404, 409 duplicate key, 500 sanitization (`appErrorHandler`)
+- Infrastructure: graceful shutdown, health check, structured logging
+
+### CI (GitHub Actions)
+
+[`.github/workflows/test.yml`](.github/workflows/test.yml) runs on:
+
+- **push** to `main` or `master`
+- **pull_request** targeting `main` or `master`
+- **workflow_dispatch** (manual run from the Actions tab)
+
+The job uses Node 20, `npm ci`, and `npm test`. No MongoDB service container is required.
+
+After pushing, open the repo on GitHub → **Actions** → **Server tests** to view results.
+
+---
+
+## Development guide
 
 ### Adding a new route
 
 1. Create or extend a file in `src/routes/`
 2. Use `asyncHandler` from `src/utils/async-handler.js`
 3. Apply middleware: `requireAuth`, `requireFullSession`, `requireAdmin` as needed
-4. Mount in `src/index.js`
+4. Mount the router in `src/app.js` (not `index.js`)
 5. Add `audit()` calls for admin writes
-6. Document the endpoint in this README
+6. Add route tests under `tests/routes/` using `createApp()` and model mocks
+7. Document the endpoint in this README
+
+### Adding tests
+
+1. Import mocks via `tests/helpers/model-mocks.js` (or rely on global `tests/setup.js`)
+2. Use `buildUser` / `buildAdmin` and `authHeader()` from `tests/helpers/fixtures.js` — `authHeader` picks the correct JWT scope from user state
+3. Reset mocks in `beforeEach` with `resetModelMocks()`
+4. For multi-step auth flows, add a workflow test under `tests/workflows/`
+5. Run `npm test` before pushing (CI runs the same command)
 
 ### Code conventions
 
